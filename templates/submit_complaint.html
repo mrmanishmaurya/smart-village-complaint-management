@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block content %}
+<div class="form-box wide">
+<h2>Submit Complaint</h2>
+<form method="post" enctype="multipart/form-data">
+<label class="form-label">Category</label>
+<select class="form-select mb-3" name="category_id" required>
+{% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+</select>
+<label class="form-label">Description</label>
+<textarea class="form-control mb-3" name="description" rows="5" placeholder="Write your complaint..." required></textarea>
+<label class="form-label">Location / Details</label>
+<input class="form-control mb-3" name="location" placeholder="Village, ward, landmark etc.">
+<label class="form-label">Photo (Optional)</label>
+<input class="form-control mb-3" type="file" name="photo" accept=".jpg,.jpeg,.png,.webp">
+<button class="btn btn-success w-100">Submit Complaint</button>
+</form>
+</div>
+{% endblock %}

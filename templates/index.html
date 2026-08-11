@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- HERO SECTION -->
+
+<section class="hero-section">
+
+    <div class="hero-overlay">
+
+        <div class="container text-center">
+
+            <p class="welcome-text">
+                Welcome to
+            </p>
+
+            <h1>
+                Smart Village
+            </h1>
+
+            <h3>
+                A step towards a better and cleaner village
+            </h3>
+
+            <p class="hero-description">
+                Report problems in your village and contribute
+                to building a better and digital India.
+            </p>
+
+            <div class="hero-buttons">
+
+                <a href="{{ url_for('login') }}"
+                   class="btn btn-success btn-lg">
+                    📝 Report a Complaint
+                </a>
+
+                <a href="{{ url_for('login') }}"
+                   class="btn btn-outline-success btn-lg">
+                    📋 View My Complaints
+                </a>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- FEATURES -->
+
+<section class="features-section">
+
+    <div class="container">
+
+        <div class="row g-4">
+
+            <div class="col-md-4">
+
+                <div class="feature-card">
+
+                    <div class="feature-icon">
+                        🏡
+                    </div>
+
+                    <h3>Easy Complaint</h3>
+
+                    <p>
+                        Submit your village complaint
+                        in just a few simple steps.
+                    </p>
+
+                    <a href="{{ url_for('login') }}">
+                        Get Started →
+                    </a>
+
+                </div>
+
+            </div>
+
+
+            <div class="col-md-4">
+
+                <div class="feature-card">
+
+                    <div class="feature-icon">
+                        📋
+                    </div>
+
+                    <h3>Track Status</h3>
+
+                    <p>
+                        Track the status of your complaint
+                        easily and quickly.
+                    </p>
+
+                    <a href="{{ url_for('login') }}">
+                        Track Complaint →
+                    </a>
+
+                </div>
+
+            </div>
+
+
+            <div class="col-md-4">
+
+                <div class="feature-card">
+
+                    <div class="feature-icon">
+                        👨‍👩‍👧‍👦
+                    </div>
+
+                    <h3>Better Village</h3>
+
+                    <p>
+                        Together we can build a cleaner,
+                        safer and smarter village.
+                    </p>
+
+                    <a href="{{ url_for('register') }}">
+                        Join Us →
+                    </a>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- STATISTICS -->
+
+<section class="stats-section">
+
+    <div class="container">
+
+        <div class="row text-center">
+
+            <div class="col-md-3 stat-box">
+                <div class="stat-icon">👥</div>
+                <h2>1250+</h2>
+                <p>Total Citizens</p>
+            </div>
+
+            <div class="col-md-3 stat-box">
+                <div class="stat-icon">📋</div>
+                <h2>980+</h2>
+                <p>Complaints Filed</p>
+            </div>
+
+            <div class="col-md-3 stat-box">
+                <div class="stat-icon">⏳</div>
+                <h2>650+</h2>
+                <p>Under Process</p>
+            </div>
+
+            <div class="col-md-3 stat-box">
+                <div class="stat-icon">✓</div>
+                <h2>580+</h2>
+                <p>Resolved</p>
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- ABOUT -->
+
+<section class="about-section">
+
+    <div class="container text-center">
+
+        <h2>Building a Smarter Village</h2>
+
+        <p>
+            Smart Village Complaint Management System
+            helps citizens report local problems digitally
+            and allows administrators to manage complaints efficiently.
+        </p>
+
+        <a href="{{ url_for('register') }}"
+           class="btn btn-success">
+            Create Citizen Account
+        </a>
+
+    </div>
+
+</section>
+
+{% endblock %}

@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h2 class="mb-4">Admin Dashboard</h2>
+
+<div class="row g-3 mb-4">
+
+    {% set cards = [
+        ('Total', total, 'primary'),
+        ('Submitted', stats['Submitted'], 'secondary'),
+        ('Under Review', stats['Under Review'], 'warning'),
+        ('In Progress', stats['In Progress'], 'info'),
+        ('Resolved', stats['Resolved'], 'success'),
+        ('Closed', stats['Closed'], 'dark')
+    ] %}
+
+    {% for title, num, color in cards %}
+
+    <div class="col-md-4 col-lg-2">
+        <div class="card text-center p-3 border-0 shadow-sm">
+
+            <div class="small">{{ title }}</div>
+
+            <div class="display-6 text-{{ color }}">
+                {{ num }}
+            </div>
+
+        </div>
+    </div>
+
+    {% endfor %}
+
+</div>
+
+
+<div class="card p-3">
+
+    <h4>All Complaints</h4>
+
+    <div class="table-responsive">
+
+        <table class="table align-middle">
+
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Citizen</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Update</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for c in complaints %}
+
+                <tr>
+
+                    <td>{{ c.complaint_id }}</td>
+
+                    <td>{{ c.user_name }}</td>
+
+                    <td>{{ c.category_name }}</td>
+
+                    <td>
+                        <span class="badge bg-primary">
+                            {{ c.status }}
+                        </span>
+                    </td>
+
+                    <td>
+
+                        <form
+                            method="post"
+                            action="{{ url_for('update_status', complaint_id=c.id) }}"
+                            class="d-flex gap-2"
+                        >
+
+                            <select
+                                name="status"
+                                class="form-select form-select-sm"
+                            >
+
+                                {% for s in [
+                                    'Submitted',
+                                    'Under Review',
+                                    'In Progress',
+                                    'Resolved',
+                                    'Closed'
+                                ] %}
+
+                                <option
+                                    value="{{ s }}"
+                                    {% if c.status == s %}selected{% endif %}
+                                >
+                                    {{ s }}
+                                </option>
+
+                                {% endfor %}
+
+                            </select>
+
+                            <button class="btn btn-sm btn-success">
+                                Update
+                            </button>
+
+                        </form>
+
+                    </td>
+
+                </tr>
+
+                {% else %}
+
+                <tr>
+                    <td colspan="5">
+                        No complaints.
+                    </td>
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
+
+{% endblock %}

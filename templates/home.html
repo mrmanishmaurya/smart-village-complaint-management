@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Smart Village Complaint Management</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f8f5;
+            color: #222;
+        }
+
+        header {
+            background: #176b3a;
+            color: white;
+            padding: 20px 8%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 22px;
+        }
+
+        .hero {
+            text-align: center;
+            padding: 70px 20px;
+            background: linear-gradient(135deg, #e8f5e9, #ffffff);
+        }
+
+        .hero h2 {
+            font-size: 40px;
+            color: #176b3a;
+            margin-bottom: 15px;
+        }
+
+        .hero p {
+            font-size: 18px;
+            color: #555;
+            max-width: 700px;
+            margin: auto;
+            line-height: 1.6;
+        }
+
+        .buttons {
+            margin-top: 30px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 13px 25px;
+            margin: 8px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .citizen {
+            background: #176b3a;
+            color: white;
+        }
+
+        .admin {
+            border: 2px solid #176b3a;
+            color: #176b3a;
+        }
+
+        .features {
+            padding: 50px 8%;
+            text-align: center;
+        }
+
+        .features h2 {
+            color: #176b3a;
+            margin-bottom: 30px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 30px 20px;
+            border-radius: 12px;
+            box-shadow: 0 3px 15px rgba(0,0,0,0.08);
+        }
+
+        .card h3 {
+            margin: 15px 0 10px;
+            color: #176b3a;
+        }
+
+        .card p {
+            color: #666;
+            line-height: 1.5;
+        }
+
+        footer {
+            text-align: center;
+            background: #123d27;
+            color: white;
+            padding: 20px;
+            margin-top: 30px;
+        }
+
+        @media (max-width: 700px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .hero h2 {
+                font-size: 28px;
+            }
+
+            header {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>🌱 Smart Village</h1>
+    <span>Complaint Management System</span>
+</header>
+
+<section class="hero">
+
+    <h2>Smart Village Complaint Management</h2>
+
+    <p>
+        Report village problems easily, track your complaint status,
+        and help make your village cleaner, safer and smarter.
+    </p>
+
+    <div class="buttons">
+
+        <a href="{{ url_for('citizen_login') }}" class="btn citizen">
+            👤 Citizen Login
+        </a>
+
+        <a href="{{ url_for('admin_login') }}" class="btn admin">
+            🛡️ Admin Login
+        </a>
+
+    </div>
+
+</section>
+
+<section class="features">
+
+    <h2>How It Works</h2>
+
+    <div class="cards">
+
+        <div class="card">
+            <div style="font-size:40px;">📝</div>
+            <h3>Submit Complaint</h3>
+            <p>
+                Citizens can submit village problems
+                with description and location.
+            </p>
+        </div>
+
+        <div class="card">
+            <div style="font-size:40px;">🔍</div>
+            <h3>Track Status</h3>
+            <p>
+                Check whether your complaint is
+                under review or in progress.
+            </p>
+        </div>
+
+        <div class="card">
+            <div style="font-size:40px;">✅</div>
+            <h3>Get Resolution</h3>
+            <p>
+                Track the complaint until the issue
+                is successfully resolved.
+            </p>
+        </div>
+
+    </div>
+
+</section>
+
+<footer>
+    © 2026 Smart Village Complaint Management System
+</footer>
+
+</body>
+</html>
