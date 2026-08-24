@@ -728,20 +728,43 @@ def update_status(complaint_id):
 
 from flask import jsonify
 
+@app.route("/api/health", methods=["GET"])
+def api_health():
+    return jsonify({
+        "status": "success",
+        "message": "Smart Village Backend is running"
+    })
+
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
-    stats = {"total_citizens": 0, "total_complaints": 0, "under_process": 0, "resolved": 0}
+    stats = {
+        "citizens": 0,
+        "complaints": 0,
+        "in_progress": 0,
+        "resolved": 0,
+        "total_citizens": 0,
+        "total_complaints": 0,
+        "under_process": 0
+    }
     try:
         db = get_db()
         cur = db.cursor(dictionary=True)
-        cur.execute("SELECT COUNT(*) AS n FROM users"); r = cur.fetchone(); stats["total_citizens"] = r["n"] if r else 0
-        cur.execute("SELECT COUNT(*) AS n FROM complaints"); r = cur.fetchone(); stats["total_complaints"] = r["n"] if r else 0
-        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Submitted', 'Under Review', 'In Progress')"); r = cur.fetchone(); stats["under_process"] = r["n"] if r else 0
+        cur.execute("SELECT COUNT(*) AS n FROM users"); r = cur.fetchone(); stats["citizens"] = stats["total_citizens"] = r["n"] if r else 0
+        cur.execute("SELECT COUNT(*) AS n FROM complaints"); r = cur.fetchone(); stats["complaints"] = stats["total_complaints"] = r["n"] if r else 0
+        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Submitted', 'Under Review', 'In Progress')"); r = cur.fetchone(); stats["in_progress"] = stats["under_process"] = r["n"] if r else 0
         cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved', 'Closed')"); r = cur.fetchone(); stats["resolved"] = r["n"] if r else 0
         cur.close(); db.close()
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-    return jsonify({"success": True, "stats": stats})
+    return jsonify({
+        "status": "success",
+        "success": True,
+        "stats": stats,
+        "citizens": stats["citizens"],
+        "complaints": stats["complaints"],
+        "in_progress": stats["in_progress"],
+        "resolved": stats["resolved"]
+    })
 
 @app.route("/api/categories", methods=["GET"])
 def api_categories():
