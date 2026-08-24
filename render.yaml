@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: smart-village-backend
+    name: smart-village-complaint-management
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
