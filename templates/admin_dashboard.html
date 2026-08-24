@@ -2,7 +2,13 @@
 
 {% block content %}
 
-<h2 class="mb-4">Admin Dashboard</h2>
+<div class="admin-dashboard-banner d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <h2 class="fw-bold mb-1">👨‍💼 Administrator Control Panel</h2>
+        <p class="mb-0 text-light opacity-90">Monitor, manage, and update resolution status for all Smart Village citizen complaints.</p>
+    </div>
+    <span class="badge bg-warning text-dark px-3 py-2 fs-6 rounded-pill fw-bold">Admin: {{ session.get('admin_name', 'Official') }}</span>
+</div>
 
 <div class="row g-3 mb-4">
 
@@ -19,13 +25,10 @@
 
     <div class="col-md-4 col-lg-2">
         <div class="card text-center p-3 border-0 shadow-sm">
-
-            <div class="small">{{ title }}</div>
-
-            <div class="display-6 text-{{ color }}">
+            <div class="small text-muted">{{ title }}</div>
+            <div class="display-6 text-{{ color }} fw-bold">
                 {{ num }}
             </div>
-
         </div>
     </div>
 
@@ -36,7 +39,7 @@
 
 <div class="card p-3">
 
-    <h4>All Complaints</h4>
+    <h4 class="mb-3">All Complaints</h4>
 
     <div class="table-responsive">
 
@@ -47,8 +50,10 @@
                     <th>ID</th>
                     <th>Citizen</th>
                     <th>Category</th>
+                    <th>Photo</th>
                     <th>Status</th>
-                    <th>Update</th>
+                    <th>Action / Details</th>
+                    <th>Update Status</th>
                 </tr>
             </thead>
 
@@ -58,11 +63,21 @@
 
                 <tr>
 
-                    <td>{{ c.complaint_id }}</td>
+                    <td><strong>{{ c.complaint_id }}</strong></td>
 
                     <td>{{ c.user_name }}</td>
 
                     <td>{{ c.category_name }}</td>
+
+                    <td>
+                        {% if c.photo %}
+                        <a href="#" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
+                            <img src="{{ url_for('uploaded_file', filename=c.photo) }}" alt="Photo" style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
+                        </a>
+                        {% else %}
+                        <span class="badge bg-light text-secondary border">No Image</span>
+                        {% endif %}
+                    </td>
 
                     <td>
                         <span class="badge bg-primary">
@@ -71,18 +86,22 @@
                     </td>
 
                     <td>
+                        <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
+                            👁️ View Details
+                        </button>
+                    </td>
 
+                    <td>
                         <form
                             method="post"
                             action="{{ url_for('update_status', complaint_id=c.id) }}"
                             class="d-flex gap-2"
                         >
-
                             <select
                                 name="status"
                                 class="form-select form-select-sm"
+                                style="min-width: 130px;"
                             >
-
                                 {% for s in [
                                     'Submitted',
                                     'Under Review',
@@ -90,33 +109,71 @@
                                     'Resolved',
                                     'Closed'
                                 ] %}
-
                                 <option
                                     value="{{ s }}"
                                     {% if c.status == s %}selected{% endif %}
                                 >
                                     {{ s }}
                                 </option>
-
                                 {% endfor %}
-
                             </select>
 
                             <button class="btn btn-sm btn-success">
                                 Update
                             </button>
-
                         </form>
-
                     </td>
 
                 </tr>
 
+                <!-- Complaint Details & Image Modal -->
+                <div class="modal fade" id="complaintModal{{ c.id }}" tabindex="-1" aria-labelledby="complaintModalLabel{{ c.id }}" aria-hidden="true">
+                  <div class="modal-dialog modal-lg modal-dialog-centered">
+                    <div class="modal-content">
+                      <div class="modal-header bg-light">
+                        <h5 class="modal-title" id="complaintModalLabel{{ c.id }}">Complaint Details - {{ c.complaint_id }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="row">
+                          <div class="col-md-6">
+                            <p><strong>Citizen:</strong> {{ c.user_name }}</p>
+                            <p><strong>Category:</strong> {{ c.category_name }}</p>
+                            <p><strong>Location:</strong> {{ c.location or 'Not provided' }}</p>
+                            <p><strong>Status:</strong> <span class="badge bg-primary">{{ c.status }}</span></p>
+                            <p><strong>Submitted Date:</strong> {{ c.created_at }}</p>
+                            <p><strong>Description:</strong></p>
+                            <div class="p-3 bg-light rounded border mb-3">
+                                {{ c.description }}
+                            </div>
+                          </div>
+                          <div class="col-md-6 text-center">
+                            <label class="fw-bold d-block mb-2">Complaint Image:</label>
+                            {% if c.photo %}
+                              <a href="{{ url_for('uploaded_file', filename=c.photo) }}" target="_blank">
+                                <img src="{{ url_for('uploaded_file', filename=c.photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 350px;" alt="Complaint photo">
+                              </a>
+                              <small class="text-muted d-block mt-1">Click image to open full size in new tab</small>
+                            {% else %}
+                              <div class="p-4 bg-light rounded border text-muted">
+                                📷 No image attached with this complaint.
+                              </div>
+                            {% endif %}
+                          </div>
+                        </div>
+                      </div>
+                      <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {% else %}
 
                 <tr>
-                    <td colspan="5">
-                        No complaints.
+                    <td colspan="7" class="text-center text-muted">
+                        No complaints found.
                     </td>
                 </tr>
 

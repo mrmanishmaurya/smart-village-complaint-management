@@ -23,7 +23,12 @@
             <small>Complaint Management</small>
         </a>
 
-        <div class="d-flex gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+
+            <!-- DAY & NIGHT MODE TOGGLE BUTTON -->
+            <button id="themeToggleBtn" class="btn btn-outline-light btn-sm me-1" onclick="toggleTheme()" title="Toggle Day/Night Mode">
+                <span id="themeIcon">🌙</span> <span id="themeText">Night Mode</span>
+            </button>
 
             {% if session.get('user_id') %}
 
@@ -54,29 +59,44 @@
                     Logout
                 </a>
 
- {% else %}
+            {% else %}
 
-<a class="btn btn-light btn-sm"
-   href="{{ url_for('index') }}">
-    🏠 Home
-</a>
+                <a class="btn btn-light btn-sm"
+                   href="{{ url_for('index') }}">
+                    🏠 Home
+                </a>
 
-<a class="btn btn-light btn-sm"
-   href="{{ url_for('login') }}">
-    Citizen Login
-</a>
+                <a class="btn btn-outline-light btn-sm"
+                   href="{{ url_for('index') }}#how-it-works">
+                    ⚙️ How it Works
+                </a>
 
-<a class="btn btn-outline-light btn-sm"
-   href="{{ url_for('register') }}">
-    Register
-</a>
+                <a class="btn btn-outline-light btn-sm"
+                   href="{{ url_for('index') }}#about-us">
+                    ℹ️ About Us
+                </a>
 
-<a class="btn btn-warning btn-sm"
-   href="{{ url_for('admin_login') }}">
-    🔐 Admin Login
-</a>
+                <a class="btn btn-outline-light btn-sm"
+                   href="{{ url_for('index') }}#contact">
+                    📞 Contact
+                </a>
 
-{% endif %}
+                <a class="btn btn-light btn-sm ms-lg-2"
+                   href="{{ url_for('login') }}">
+                    Citizen Login
+                </a>
+
+                <a class="btn btn-outline-light btn-sm"
+                   href="{{ url_for('register') }}">
+                    Register
+                </a>
+
+                <a class="btn btn-warning btn-sm"
+                   href="{{ url_for('admin_login') }}">
+                    🔐 Admin Login
+                </a>
+
+            {% endif %}
 
         </div>
     </div>
@@ -130,9 +150,10 @@
             <div class="col-md-3">
                 <h6>Quick Links</h6>
 
-                <p>Home</p>
-                <p>Services</p>
-                <p>Complaint Management</p>
+                <p><a href="{{ url_for('index') }}" class="text-light text-decoration-none">Home</a></p>
+                <p><a href="{{ url_for('index') }}#how-it-works" class="text-light text-decoration-none">How It Works</a></p>
+                <p><a href="{{ url_for('index') }}#about-us" class="text-light text-decoration-none">About Us</a></p>
+                <p><a href="{{ url_for('index') }}#contact" class="text-light text-decoration-none">Contact Us</a></p>
             </div>
 
             <div class="col-md-4">
@@ -152,8 +173,44 @@
         </div>
 
     </div>
-
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- DAY & NIGHT MODE SCRIPT -->
+<script>
+    function applyTheme(theme) {
+        const btnIcon = document.getElementById('themeIcon');
+        const btnText = document.getElementById('themeText');
+        const toggleBtn = document.getElementById('themeToggleBtn');
+
+        if (theme === 'dark') {
+            document.body.classList.add('dark-mode');
+            document.documentElement.setAttribute('data-bs-theme', 'dark');
+            if (btnIcon) btnIcon.textContent = '☀️';
+            if (btnText) btnText.textContent = 'Day Mode';
+            if (toggleBtn) toggleBtn.classList.replace('btn-outline-light', 'btn-warning');
+            localStorage.setItem('smart_village_theme', 'dark');
+        } else {
+            document.body.classList.remove('dark-mode');
+            document.documentElement.setAttribute('data-bs-theme', 'light');
+            if (btnIcon) btnIcon.textContent = '🌙';
+            if (btnText) btnText.textContent = 'Night Mode';
+            if (toggleBtn) toggleBtn.classList.replace('btn-warning', 'btn-outline-light');
+            localStorage.setItem('smart_village_theme', 'light');
+        }
+    }
+
+    function toggleTheme() {
+        const currentTheme = localStorage.getItem('smart_village_theme') || 'light';
+        applyTheme(currentTheme === 'light' ? 'dark' : 'light');
+    }
+
+    // Apply saved theme immediately on page load
+    document.addEventListener("DOMContentLoaded", function() {
+        const savedTheme = localStorage.getItem('smart_village_theme') || 'light';
+        applyTheme(savedTheme);
+    });
+</script>
 </body>
 </html>

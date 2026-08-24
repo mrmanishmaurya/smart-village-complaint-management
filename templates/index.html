@@ -2,42 +2,53 @@
 
 {% block content %}
 
-<!-- HERO SECTION -->
+<!-- HERO SECTION WITH AUTOMATIC BACKGROUND SLIDESHOW -->
 
 <section class="hero-section">
+
+    <div class="hero-bg-slider">
+        <div class="hero-bg-slide active" style="background-image: url('{{ url_for('static', filename='images/hero-bg1.jpg') }}');"></div>
+        <div class="hero-bg-slide" style="background-image: url('{{ url_for('static', filename='images/hero-bg2.jpg') }}');"></div>
+        <div class="hero-bg-slide" style="background-image: url('{{ url_for('static', filename='images/hero-bg3.jpg') }}');"></div>
+        <div class="hero-bg-slide" style="background-image: url('{{ url_for('static', filename='images/hero-bg4.jpg') }}');"></div>
+    </div>
 
     <div class="hero-overlay">
 
         <div class="container text-center">
 
-            <p class="welcome-text">
-                Welcome to
-            </p>
+            <div class="hero-content-box">
 
-            <h1>
-                Smart Village
-            </h1>
+                <p class="welcome-text">
+                    🌱 Welcome to
+                </p>
 
-            <h3>
-                A step towards a better and cleaner village
-            </h3>
+                <h1>
+                    Smart Village
+                </h1>
 
-            <p class="hero-description">
-                Report problems in your village and contribute
-                to building a better and digital India.
-            </p>
+                <h3>
+                    A step towards a better and cleaner village
+                </h3>
 
-            <div class="hero-buttons">
+                <p class="hero-description">
+                    Report problems in your village and contribute
+                    to building a better and digital India.
+                </p>
 
-                <a href="{{ url_for('login') }}"
-                   class="btn btn-success btn-lg">
-                    📝 Report a Complaint
-                </a>
+                <div class="hero-buttons">
 
-                <a href="{{ url_for('login') }}"
-                   class="btn btn-outline-success btn-lg">
-                    📋 View My Complaints
-                </a>
+                    <a href="{{ url_for('login') }}"
+                       class="btn btn-success btn-lg">
+                        📝 Report a Complaint
+                    </a>
+
+                    <a href="{{ url_for('login') }}"
+                       class="btn btn-outline-success btn-lg">
+                        📋 View My Complaints
+                    </a>
+
+                </div>
 
             </div>
 
@@ -48,11 +59,16 @@
 </section>
 
 
-<!-- FEATURES -->
+<!-- FEATURES & HOW IT WORKS -->
 
-<section class="features-section">
+<section id="how-it-works" class="features-section">
 
     <div class="container">
+
+        <div class="text-center mb-5">
+            <h2 class="fw-bold text-success">⚙️ How It Works</h2>
+            <p class="text-muted fs-5">Simple 3-step process to report and resolve village problems</p>
+        </div>
 
         <div class="row g-4">
 
@@ -144,25 +160,25 @@
 
             <div class="col-md-3 stat-box">
                 <div class="stat-icon">👥</div>
-                <h2>1250+</h2>
+                <h2>{{ stats.total_citizens }}</h2>
                 <p>Total Citizens</p>
             </div>
 
             <div class="col-md-3 stat-box">
                 <div class="stat-icon">📋</div>
-                <h2>980+</h2>
+                <h2>{{ stats.total_complaints }}</h2>
                 <p>Complaints Filed</p>
             </div>
 
             <div class="col-md-3 stat-box">
                 <div class="stat-icon">⏳</div>
-                <h2>650+</h2>
+                <h2>{{ stats.under_process }}</h2>
                 <p>Under Process</p>
             </div>
 
             <div class="col-md-3 stat-box">
                 <div class="stat-icon">✓</div>
-                <h2>580+</h2>
+                <h2>{{ stats.resolved }}</h2>
                 <p>Resolved</p>
             </div>
 
@@ -173,27 +189,120 @@
 </section>
 
 
-<!-- ABOUT -->
+<!-- ABOUT US & SHOWCASE GALLERY -->
 
-<section class="about-section">
+<section id="about-us" class="about-section">
 
     <div class="container text-center">
 
-        <h2>Building a Smarter Village</h2>
+        <h2 class="fw-bold text-success mb-3">ℹ️ About Us - Building a Smarter Village</h2>
 
-        <p>
-            Smart Village Complaint Management System
-            helps citizens report local problems digitally
-            and allows administrators to manage complaints efficiently.
+        <p class="mb-5 text-muted mx-auto" style="max-width: 700px; font-size: 18px;">
+            Smart Village Complaint Management System empowers citizens to report local infrastructure, sanitation, and community issues digitally, enabling village administrators to respond quickly and transparently.
         </p>
 
+        <!-- VILLAGE GALLERY -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-6 col-lg-3">
+                <div class="card overflow-hidden shadow-sm border-0 rounded-4 h-100">
+                    <img src="{{ url_for('static', filename='images/hero-bg1.jpg') }}" alt="Clean Village" class="img-fluid" style="height: 190px; object-fit: cover;">
+                    <div class="card-body bg-white p-3">
+                        <small class="fw-bold text-success">🏡 Clean Village & Well</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="card overflow-hidden shadow-sm border-0 rounded-4 h-100">
+                    <img src="{{ url_for('static', filename='images/hero-bg2.jpg') }}" alt="Village Elders" class="img-fluid" style="height: 190px; object-fit: cover;">
+                    <div class="card-body bg-white p-3">
+                        <small class="fw-bold text-success">🌳 Banyan Tree & Elders</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="card overflow-hidden shadow-sm border-0 rounded-4 h-100">
+                    <img src="{{ url_for('static', filename='images/hero-bg3.jpg') }}" alt="Sunset Path" class="img-fluid" style="height: 190px; object-fit: cover;">
+                    <div class="card-body bg-white p-3">
+                        <small class="fw-bold text-success">🌅 Sunset Village Path</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="card overflow-hidden shadow-sm border-0 rounded-4 h-100">
+                    <img src="{{ url_for('static', filename='images/hero-bg4.jpg') }}" alt="Paddy Fields" class="img-fluid" style="height: 190px; object-fit: cover;">
+                    <div class="card-body bg-white p-3">
+                        <small class="fw-bold text-success">🌾 Green Paddy Fields</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <a href="{{ url_for('register') }}"
-           class="btn btn-success">
+           class="btn btn-success btn-lg px-5 rounded-pill shadow">
             Create Citizen Account
         </a>
 
     </div>
 
 </section>
+
+
+<!-- CONTACT US SECTION -->
+
+<section id="contact" class="contact-section">
+
+    <div class="container text-center">
+
+        <h2 class="fw-bold text-white mb-3 contact-title">📞 Contact Us</h2>
+        <p class="contact-subtitle mb-5 mx-auto fs-5" style="max-width: 700px;">
+            Have questions or need assistance with reporting a complaint? Reach out to the Smart Village Helpline team.
+        </p>
+
+        <div class="row g-4 justify-content-center">
+
+            <div class="col-md-4">
+                <div class="contact-card">
+                    <div class="contact-icon">📞</div>
+                    <h5 class="fw-bold text-dark mb-2">Phone Helpline</h5>
+                    <p class="text-muted mb-0 fw-semibold">+91 9934174951</p>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="contact-card">
+                    <div class="contact-icon">✉️</div>
+                    <h5 class="fw-bold text-dark mb-2">Official Email</h5>
+                    <p class="text-muted mb-0 fw-semibold">manishmaurya9934@gmail.com</p>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="contact-card">
+                    <div class="contact-icon">📍</div>
+                    <h5 class="fw-bold text-dark mb-2">Panchayat Office</h5>
+                    <p class="text-muted mb-0 fw-semibold">Smart Village Headquarters, Bihar, India.</p>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- AUTOMATIC BACKGROUND IMAGE SLIDESHOW SCRIPT -->
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const slides = document.querySelectorAll(".hero-bg-slide");
+        if (slides.length > 0) {
+            let currentSlide = 0;
+            setInterval(function() {
+                slides[currentSlide].classList.remove("active");
+                currentSlide = (currentSlide + 1) % slides.length;
+                slides[currentSlide].classList.add("active");
+            }, 4500); // Automatically changes background image every 4.5 seconds
+        }
+    });
+</script>
 
 {% endblock %}

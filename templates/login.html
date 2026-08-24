@@ -1,12 +1,31 @@
-{% extends "base.html" %}{% block content %}
-<div class="form-box">
-<h2>Citizen Login</h2>
-<form method="post">
-<input class="form-control mb-3" type="email" name="email" placeholder="Email" required>
-<input class="form-control mb-3" type="password" name="password" placeholder="Password" required>
-<button class="btn btn-primary w-100">Login</button>
-</form>
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-bg-citizen-login">
+    <div class="form-box my-0 shadow-lg">
+        <h2 class="text-center mb-3 text-success fw-bold">👤 Citizen Login</h2>
+        <p class="text-center text-muted mb-4">Access your Smart Village account</p>
+        <form method="post">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Email Address</label>
+                <input class="form-control" type="email" name="email" placeholder="Enter your email" required>
+            </div>
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label fw-bold mb-0">Password</label>
+                    <a href="{{ url_for('forgot_password') }}" class="small text-success fw-bold text-decoration-none">Forgot Password?</a>
+                </div>
+                <input class="form-control" type="password" name="password" placeholder="Enter your password" required>
+            </div>
+            <button class="btn btn-success w-100 py-2 fw-bold rounded-3">Login to Account</button>
+        </form>
+        <p class="text-center mt-3 mb-0 text-muted">
+            Don't have an account? <a href="{{ url_for('register') }}" class="text-success fw-bold">Register Here</a>
+        </p>
+    </div>
 </div>
+
 {% endblock %}
 <!DOCTYPE html>
 <html lang="en">

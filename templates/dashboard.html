@@ -1,17 +1,62 @@
-{% extends "base.html" %}{% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-<h2>Welcome, {{ session.get('user_name') }}</h2>
-<a class="btn btn-success" href="{{ url_for('submit_complaint') }}">+ Submit Complaint</a>
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container py-4">
+
+    <!-- VILLAGE HEADER BANNER -->
+    <div class="dashboard-header-banner d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div>
+            <h2 class="fw-bold mb-1">🏡 Welcome, {{ session.get('user_name') }}!</h2>
+            <p class="mb-0 text-light opacity-90">Manage your complaints and track resolution progress for a cleaner village.</p>
+        </div>
+        <a class="btn btn-warning btn-lg fw-bold rounded-pill px-4 shadow-sm text-dark" href="{{ url_for('submit_complaint') }}">
+            📝 Submit New Complaint
+        </a>
+    </div>
+
+    <div class="card p-4 shadow-sm border-0 rounded-4">
+        <h4 class="fw-bold text-success mb-3">📋 Your Complaints History</h4>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for c in complaints %}
+                <tr>
+                    <td><span class="fw-bold">{{ c.complaint_id }}</span></td>
+                    <td>{{ c.category_name }}</td>
+                    <td><span class="badge bg-success px-3 py-2 rounded-pill">{{ c.status }}</span></td>
+                    <td>{{ c.created_at }}</td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <a class="btn btn-outline-primary" href="{{ url_for('complaint_detail', complaint_db_id=c.id) }}">View</a>
+                            <a class="btn btn-outline-warning" href="{{ url_for('edit_complaint', complaint_db_id=c.id) }}">Edit</a>
+                            <form method="post" action="{{ url_for('delete_complaint', complaint_db_id=c.id) }}" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this complaint?');">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" style="border-top-left-radius:0; border-bottom-left-radius:0;">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center text-muted py-4">
+                        No complaints submitted yet. Click "Submit New Complaint" to get started!
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
-<div class="card p-3">
-<h4>Previous Complaints</h4>
-<div class="table-responsive"><table class="table align-middle">
-<thead><tr><th>ID</th><th>Category</th><th>Status</th><th>Date</th><th></th></tr></thead>
-<tbody>
-{% for c in complaints %}
-<tr><td>{{ c.complaint_id }}</td><td>{{ c.category_name }}</td><td><span class="badge bg-info">{{ c.status }}</span></td><td>{{ c.created_at }}</td>
-<td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('complaint_detail', complaint_db_id=c.id) }}">View</a></td></tr>
-{% else %}<tr><td colspan="5">No complaints yet.</td></tr>{% endfor %}
-</tbody></table></div>
-</div>
+
 {% endblock %}

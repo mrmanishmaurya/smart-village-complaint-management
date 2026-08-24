@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% block content %}
+<div class="form-box wide">
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Edit Complaint</h2>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('dashboard') }}">← Back to Dashboard</a>
+</div>
+<form method="post" enctype="multipart/form-data">
+<label class="form-label">Category</label>
+<select class="form-select mb-3" name="category_id" required>
+{% for c in categories %}
+<option value="{{ c.id }}" {% if c.id == complaint.category_id %}selected{% endif %}>{{ c.name }}</option>
+{% endfor %}
+</select>
+<label class="form-label">Description</label>
+<textarea class="form-control mb-3" name="description" rows="5" placeholder="Write your complaint..." required>{{ complaint.description }}</textarea>
+<label class="form-label">Location / Details</label>
+<input class="form-control mb-3" name="location" value="{{ complaint.location or '' }}" placeholder="Village, ward, landmark etc.">
+<label class="form-label">Photo</label>
+{% if complaint.photo %}
+<div class="mb-2">
+    <small class="text-muted d-block mb-1">Current Photo:</small>
+    <img src="{{ url_for('uploaded_file', filename=complaint.photo) }}" style="max-height: 150px; border-radius: 8px;" alt="Complaint photo">
+</div>
+{% endif %}
+<small class="text-muted d-block mb-1">Upload new photo to replace current photo (Optional):</small>
+<input class="form-control mb-3" type="file" name="photo" accept=".jpg,.jpeg,.png,.webp">
+<div class="d-flex gap-2">
+    <button type="submit" class="btn btn-success flex-grow-1">Update Complaint</button>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+</div>
+{% endblock %}

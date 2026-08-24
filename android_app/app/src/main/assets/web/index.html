@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Village Complaint Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --success-color: #198754;
+            --bg-color: #f8f9fa;
+        }
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            padding-bottom: 70px;
+        }
+        .app-navbar {
+            background: linear-gradient(135deg, #0d6efd, #0b5ed7);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        }
+        .hero-card {
+            background: linear-gradient(135deg, #198754, #146c43);
+            color: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(25,135,84,0.3);
+        }
+        .stat-card {
+            background: white;
+            border-radius: 14px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+        .stat-card h3 {
+            font-weight: 700;
+            color: #0d6efd;
+            margin-bottom: 2px;
+        }
+        .complaint-card {
+            background: white;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-left: 4px solid #0d6efd;
+        }
+        .badge-submitted { background-color: #0d6efd; }
+        .badge-review { background-color: #ffc107; color: #000; }
+        .badge-progress { background-color: #0dcaf0; color: #000; }
+        .badge-resolved { background-color: #198754; }
+        .badge-closed { background-color: #6c757d; }
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 0;
+            z-index: 1000;
+        }
+        .bottom-nav-item {
+            text-align: center;
+            color: #6c757d;
+            text-decoration: none;
+            font-size: 11px;
+            flex: 1;
+        }
+        .bottom-nav-item.active {
+            color: #0d6efd;
+            font-weight: 600;
+        }
+        .bottom-nav-icon {
+            font-size: 20px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navbar -->
+    <nav class="navbar navbar-dark app-navbar sticky-top">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1 fw-bold fs-6">
+                🌱 Smart Village Management
+            </span>
+            <div id="userInfoHeader" class="text-white fs-7"></div>
+        </div>
+    </nav>
+
+    <!-- Main Dynamic Content Container -->
+    <div class="container py-3" id="appContent">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading Smart Village System...</p>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation Bar -->
+    <div class="bottom-nav">
+        <a href="#" class="bottom-nav-item active" onclick="showView('home')">
+            <span class="bottom-nav-icon">🏡</span> Home
+        </a>
+        <a href="#" class="bottom-nav-item" onclick="showView('dashboard')">
+            <span class="bottom-nav-icon">📋</span> Dashboard
+        </a>
+        <a href="#" class="bottom-nav-item" onclick="showView('submit')">
+            <span class="bottom-nav-icon">📝</span> Submit
+        </a>
+        <a href="#" class="bottom-nav-item" onclick="showView('admin')">
+            <span class="bottom-nav-icon">👑</span> Admin
+        </a>
+    </div>
+
+    <script>
+        // API Base Configurable URL
+        let API_BASE_URL = "https://smart-village-complaint-management.onrender.com";
+        
+        let currentUser = JSON.parse(localStorage.getItem('sv_user') || 'null');
+        let currentAdmin = JSON.parse(localStorage.getItem('sv_admin') || 'null');
+
+        function updateHeader() {
+            const h = document.getElementById('userInfoHeader');
+            if (currentUser) {
+                h.innerHTML = `<span class="badge bg-light text-dark">👤 ${currentUser.name}</span> <button onclick="logout()" class="btn btn-sm btn-outline-light ms-1 py-0 px-2">Logout</button>`;
+            } else if (currentAdmin) {
+                h.innerHTML = `<span class="badge bg-warning text-dark">👑 Admin</span> <button onclick="adminLogout()" class="btn btn-sm btn-outline-light ms-1 py-0 px-2">Logout</button>`;
+            } else {
+                h.innerHTML = `<button onclick="showView('login')" class="btn btn-sm btn-light py-0 px-2 fw-semibold">Login</button>`;
+            }
+        }
+
+        async function fetchAPI(endpoint, options = {}) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+                const res = await fetch(API_BASE_URL + endpoint, { ...options, signal: controller.signal });
+                clearTimeout(timeoutId);
+                return await res.json();
+            } catch (err) {
+                return { success: false, error: err.message };
+            }
+        }
+
+        async function showView(view, data = null) {
+            updateHeader();
+            const container = document.getElementById('appContent');
+
+            if (view === 'home') {
+                container.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2 text-muted">Fetching village statistics...</p></div>`;
+                const res = await fetchAPI('/api/stats');
+                const stats = res.stats || { total_citizens: 0, total_complaints: 0, under_process: 0, resolved: 0 };
+                let alertMsg = '';
+                if (!res.success) {
+                    alertMsg = `<div class="alert alert-warning py-2 px-3 small mb-3">⚠️ Connecting to cloud database server... Statistics will update automatically.</div>`;
+                }
+
+                container.innerHTML = `
+                    ${alertMsg}
+                    <div class="hero-card text-center">
+                        <h2 class="fw-bold mb-1">Smart Village</h2>
+                        <p class="small mb-3">Complaint Management & Development System</p>
+                        <div class="d-flex justify-content-center gap-2">
+                            <button onclick="showView('submit')" class="btn btn-light btn-sm fw-bold text-success">📝 File Complaint</button>
+                            <button onclick="showView('dashboard')" class="btn btn-outline-light btn-sm">📋 My Dashboard</button>
+                        </div>
+                    </div>
+
+                    <h6 class="fw-bold text-secondary mb-3">📊 Village Statistics</h6>
+                    <div class="row g-2 mb-4">
+                        <div class="col-6"><div class="stat-card"><h3>${stats.total_citizens}</h3><small class="text-muted">Citizens</small></div></div>
+                        <div class="col-6"><div class="stat-card"><h3>${stats.total_complaints}</h3><small class="text-muted">Complaints</small></div></div>
+                        <div class="col-6"><div class="stat-card"><h3 class="text-warning">${stats.under_process}</h3><small class="text-muted">In Progress</small></div></div>
+                        <div class="col-6"><div class="stat-card"><h3 class="text-success">${stats.resolved}</h3><small class="text-muted">Resolved</small></div></div>
+                    </div>
+                `;
+            } else if (view === 'login') {
+                container.innerHTML = `
+                    <div class="card border-0 shadow-sm rounded-4 p-4">
+                        <h4 class="fw-bold text-primary mb-3">Citizen Login</h4>
+                        <form onsubmit="handleLogin(event)">
+                            <div class="mb-3">
+                                <label class="form-label small">Email Address</label>
+                                <input type="email" id="loginEmail" class="form-control" required placeholder="name@example.com">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Password</label>
+                                <input type="password" id="loginPassword" class="form-control" required placeholder="••••••••">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold">Sign In</button>
+                        </form>
+                        <div class="text-center mt-3">
+                            <small>New Citizen? <a href="#" onclick="showView('register')">Register Account</a></small>
+                        </div>
+                    </div>
+                `;
+            } else if (view === 'register') {
+                container.innerHTML = `
+                    <div class="card border-0 shadow-sm rounded-4 p-4">
+                        <h4 class="fw-bold text-success mb-3">Citizen Registration</h4>
+                        <form onsubmit="handleRegister(event)">
+                            <div class="mb-3">
+                                <label class="form-label small">Full Name</label>
+                                <input type="text" id="regName" class="form-control" required placeholder="Full Name">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Email Address</label>
+                                <input type="email" id="regEmail" class="form-control" required placeholder="name@example.com">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Phone Number</label>
+                                <input type="tel" id="regPhone" class="form-control" placeholder="+91 9934174951">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Password</label>
+                                <input type="password" id="regPassword" class="form-control" required placeholder="••••••••">
+                            </div>
+                            <button type="submit" class="btn btn-success w-100 py-2 fw-semibold">Register Account</button>
+                        </form>
+                    </div>
+                `;
+            } else if (view === 'dashboard') {
+                if (!currentUser) return showView('login');
+                container.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Loading your complaints...</p></div>`;
+                const res = await fetchAPI('/api/dashboard/' + currentUser.id);
+                const complaints = res.complaints || [];
+                let html = `<div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0">My Complaints</h5>
+                    <button onclick="showView('submit')" class="btn btn-sm btn-primary">+ New Complaint</button>
+                </div>`;
+
+                if (complaints.length === 0) {
+                    html += `<div class="alert alert-info text-center py-4">No complaints submitted yet.</div>`;
+                } else {
+                    complaints.forEach(c => {
+                        let bClass = 'badge-submitted';
+                        if (c.status === 'Under Review') bClass = 'badge-review';
+                        if (c.status === 'In Progress') bClass = 'badge-progress';
+                        if (c.status === 'Resolved') bClass = 'badge-resolved';
+                        if (c.status === 'Closed') bClass = 'badge-closed';
+
+                        html += `
+                            <div class="complaint-card">
+                                <div class="d-flex justify-content-between align-items-start mb-1">
+                                    <span class="badge ${bClass}">${c.status}</span>
+                                    <small class="text-muted">${c.complaint_id}</small>
+                                </div>
+                                <h6 class="fw-bold text-dark mb-1">${c.category_name}</h6>
+                                <p class="small text-secondary mb-2">${c.description}</p>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">📍 ${c.location || 'Village Area'}</small>
+                                    <button onclick="deleteComplaint(${c.id})" class="btn btn-sm btn-outline-danger py-0 px-2 fs-7">Delete</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                container.innerHTML = html;
+            } else if (view === 'submit') {
+                if (!currentUser) return showView('login');
+                const catRes = await fetchAPI('/api/categories');
+                const categories = catRes.categories || [
+                    { id: 1, name: "Sanitation & Drainage" },
+                    { id: 2, name: "Road Repair & Potholes" },
+                    { id: 3, name: "Street Light Repair" },
+                    { id: 4, name: "Clean Water Supply" }
+                ];
+                let catOptions = categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+
+                container.innerHTML = `
+                    <div class="card border-0 shadow-sm rounded-4 p-4">
+                        <h4 class="fw-bold text-primary mb-3">Submit Complaint</h4>
+                        <form onsubmit="handleSubmitComplaint(event)">
+                            <div class="mb-3">
+                                <label class="form-label small">Complaint Category</label>
+                                <select id="compCat" class="form-select" required>${catOptions}</select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Description</label>
+                                <textarea id="compDesc" class="form-control" rows="3" required placeholder="Describe the issue in detail..."></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Location / Landmark</label>
+                                <input type="text" id="compLoc" class="form-control" placeholder="Near Ward No 4, Village School">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Photo Upload (Camera / Gallery)</label>
+                                <input type="file" id="compPhoto" class="form-control" accept="image/*">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold">Submit Complaint</button>
+                        </form>
+                    </div>
+                `;
+            } else if (view === 'admin') {
+                if (!currentAdmin) {
+                    container.innerHTML = `
+                        <div class="card border-0 shadow-sm rounded-4 p-4">
+                            <h4 class="fw-bold text-danger mb-3">Village Admin Login</h4>
+                            <form onsubmit="handleAdminLogin(event)">
+                                <div class="mb-3">
+                                    <label class="form-label small">Admin Email</label>
+                                    <input type="email" id="adminEmail" class="form-control" required value="admin@smartvillage.com">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small">Password</label>
+                                    <input type="password" id="adminPassword" class="form-control" required value="admin">
+                                </div>
+                                <button type="submit" class="btn btn-danger w-100 py-2 fw-semibold">Admin Sign In</button>
+                            </form>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-danger"></div><p class="mt-2 text-muted">Loading all village complaints...</p></div>`;
+                    const res = await fetchAPI('/api/admin/complaints');
+                    const complaints = res.complaints || [];
+
+                    let html = `<div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0">Admin Dashboard</h5>
+                        <button onclick="adminLogout()" class="btn btn-sm btn-outline-danger">Logout</button>
+                    </div>`;
+
+                    if (complaints.length === 0) {
+                        html += `<div class="alert alert-secondary text-center py-4">No complaints registered in system.</div>`;
+                    } else {
+                        complaints.forEach(c => {
+                            html += `
+                                <div class="complaint-card border-left-danger">
+                                    <div class="d-flex justify-content-between align-items-start mb-1">
+                                        <span class="badge bg-secondary">${c.status}</span>
+                                        <small class="text-muted">${c.complaint_id}</small>
+                                    </div>
+                                    <h6 class="fw-bold mb-1">${c.category_name}</h6>
+                                    <p class="small text-muted mb-2">${c.description}</p>
+                                    <small class="d-block text-secondary mb-2">👤 Citizen: ${c.citizen_name} (${c.citizen_phone || c.citizen_email})</small>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <select id="statusSelect_${c.id}" class="form-select form-select-sm">
+                                            <option value="Submitted" ${c.status==='Submitted'?'selected':''}>Submitted</option>
+                                            <option value="Under Review" ${c.status==='Under Review'?'selected':''}>Under Review</option>
+                                            <option value="In Progress" ${c.status==='In Progress'?'selected':''}>In Progress</option>
+                                            <option value="Resolved" ${c.status==='Resolved'?'selected':''}>Resolved</option>
+                                            <option value="Closed" ${c.status==='Closed'?'selected':''}>Closed</option>
+                                        </select>
+                                        <button onclick="updateStatus(${c.id})" class="btn btn-sm btn-success px-3">Update</button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                    container.innerHTML = html;
+                }
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const res = await fetchAPI('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: document.getElementById('loginEmail').value,
+                    password: document.getElementById('loginPassword').value
+                })
+            });
+            if (res.success) {
+                localStorage.setItem('sv_user', JSON.stringify(res.user));
+                currentUser = res.user;
+                showView('dashboard');
+            } else {
+                alert(res.message || 'Login failed. Please check your credentials.');
+            }
+        }
+
+        async function handleAdminLogin(e) {
+            e.preventDefault();
+            const res = await fetchAPI('/api/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: document.getElementById('adminEmail').value,
+                    password: document.getElementById('adminPassword').value
+                })
+            });
+            if (res.success) {
+                localStorage.setItem('sv_admin', JSON.stringify(res.admin));
+                currentAdmin = res.admin;
+                showView('admin');
+            } else {
+                alert(res.message || 'Invalid admin credentials.');
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const res = await fetchAPI('/api/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('regName').value,
+                    email: document.getElementById('regEmail').value,
+                    phone: document.getElementById('regPhone').value,
+                    password: document.getElementById('regPassword').value
+                })
+            });
+            if (res.success) {
+                alert('Registration successful! Please login with your credentials.');
+                showView('login');
+            } else {
+                alert(res.message || 'Registration failed.');
+            }
+        }
+
+        async function handleSubmitComplaint(e) {
+            e.preventDefault();
+            const formData = new FormData();
+            formData.append('user_id', currentUser.id);
+            formData.append('category_id', document.getElementById('compCat').value);
+            formData.append('description', document.getElementById('compDesc').value);
+            formData.append('location', document.getElementById('compLoc').value);
+            
+            const fileInput = document.getElementById('compPhoto');
+            if (fileInput.files.length > 0) {
+                formData.append('photo', fileInput.files[0]);
+            }
+
+            const res = await fetchAPI('/api/submit-complaint', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (res.success) {
+                alert('Complaint submitted successfully! Tracking ID: ' + res.complaint_id);
+                showView('dashboard');
+            } else {
+                alert(res.message || 'Failed to submit complaint.');
+            }
+        }
+
+        async function updateStatus(id) {
+            const newStatus = document.getElementById('statusSelect_' + id).value;
+            const res = await fetchAPI('/api/admin/update-status/' + id, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            });
+
+            if (res.success) {
+                alert('Status updated to ' + newStatus);
+                showView('admin');
+            } else {
+                alert('Failed to update status.');
+            }
+        }
+
+        async function deleteComplaint(id) {
+            if (!confirm('Are you sure you want to delete this complaint?')) return;
+            const res = await fetchAPI('/api/delete-complaint/' + id, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: currentUser.id })
+            });
+
+            if (res.success) {
+                alert('Complaint deleted.');
+                showView('dashboard');
+            } else {
+                alert('Failed to delete complaint.');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('sv_user');
+            currentUser = null;
+            showView('home');
+        }
+
+        function adminLogout() {
+            localStorage.removeItem('sv_admin');
+            currentAdmin = null;
+            showView('home');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => showView('home'));
+    </script>
+</body>
+</html>

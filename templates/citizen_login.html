@@ -15,7 +15,7 @@
 
         body {
             font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #e8f5e9, #f5fff7);
+            background: linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.45)), url("{{ url_for('static', filename='images/hero-bg1.jpg') }}") center/cover no-repeat;
             min-height: 100vh;
             display: flex;
             justify-content: center;
@@ -23,12 +23,13 @@
         }
 
         .login-box {
-            width: 400px;
+            width: 420px;
             max-width: 90%;
-            background: white;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
             padding: 35px;
-            border-radius: 15px;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            border-radius: 20px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
         }
 
         .logo {
@@ -148,9 +149,15 @@
 
     </form>
 
+    <div class="register" style="margin-top:15px;">
+        <a href="{{ url_for('forgot_password') }}" style="color:#176b3a; font-weight:bold; text-decoration:none;">
+            🔑 Forgot Password?
+        </a>
+    </div>
+
     <div class="register">
         Don't have an account?
-        <a href="{{ url_for('citizen_register') }}">
+        <a href="{{ url_for('register') }}">
             Register Now
         </a>
     </div>

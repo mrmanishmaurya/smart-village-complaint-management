@@ -1,13 +1,28 @@
-{% extends "base.html" %}{% block content %}
-<div class="form-box">
-<h2>Admin Login</h2>
-<form method="post">
-<input class="form-control mb-3" type="email" name="email" placeholder="Admin Email" required>
-<input class="form-control mb-3" type="password" name="password" placeholder="Password" required>
-<button class="btn btn-primary w-100">Admin Login</button>
-</form>
-<p class="small text-muted mt-3">
-    Admin Login: manishmaurya9934@gmail.com /Admin
-</p>
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-bg-admin-login">
+    <div class="form-box my-0 shadow-lg">
+        <h2 class="text-center mb-3 text-success fw-bold">🔐 Admin Portal Login</h2>
+        <p class="text-center text-muted mb-4">Smart Village Administrator Access</p>
+        <form method="post">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Admin Email</label>
+                <input class="form-control" type="email" name="email" placeholder="Admin Email" required>
+            </div>
+            <div class="mb-4">
+                <label class="form-label fw-bold">Password</label>
+                <input class="form-control" type="password" name="password" placeholder="Password" required>
+            </div>
+            <button class="btn btn-warning w-100 py-2 fw-bold text-dark rounded-3">
+                Login as Administrator
+            </button>
+        </form>
+        <div class="alert alert-light border mt-4 mb-0 small text-muted text-center">
+            🔐 Authorized Village Official Access Only
+        </div>
+    </div>
 </div>
+
 {% endblock %}

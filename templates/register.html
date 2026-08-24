@@ -2,22 +2,40 @@
 
 {% block content %}
 
-<div class="form-box">
-    <h2>Citizen Registration</h2>
+<div class="page-bg-register">
+    <div class="form-box my-0 shadow-lg">
+        <h2 class="text-center mb-3 text-success fw-bold">🌾 Citizen Registration</h2>
+        <p class="text-center text-muted mb-4">Create your Smart Village account</p>
 
-    <form method="POST" action="{{ url_for('register') }}">
-        <input class="form-control mb-3" type="text" name="name" placeholder="Full Name" required>
+        <form method="POST" action="{{ url_for('register') }}">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Full Name</label>
+                <input class="form-control" type="text" name="name" placeholder="Enter your full name" required>
+            </div>
 
-        <input class="form-control mb-3" type="email" name="email" placeholder="Email" required>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Email Address</label>
+                <input class="form-control" type="email" name="email" placeholder="Enter your email" required>
+            </div>
 
-        <input class="form-control mb-3" type="text" name="phone" placeholder="Phone">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Phone Number</label>
+                <input class="form-control" type="text" name="phone" placeholder="Enter phone number">
+            </div>
 
-        <input class="form-control mb-3" type="password" name="password" placeholder="Password" required>
+            <div class="mb-4">
+                <label class="form-label fw-bold">Password</label>
+                <input class="form-control" type="password" name="password" placeholder="Create password" required>
+            </div>
 
-        <button type="submit" class="btn btn-success w-100">
-            Register
-        </button>
-    </form>
+            <button type="submit" class="btn btn-success w-100 py-2 fw-bold rounded-3">
+                Create Account
+            </button>
+        </form>
+        <p class="text-center mt-3 mb-0 text-muted">
+            Already registered? <a href="{{ url_for('login') }}" class="text-success fw-bold">Login Here</a>
+        </p>
+    </div>
 </div>
 
 {% endblock %}
