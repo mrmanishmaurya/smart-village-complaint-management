@@ -761,22 +761,27 @@ def feedback(complaint_db_id):
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
     if request.method == "POST":
-        email = request.form["email"].strip().lower()
-        password = request.form["password"]
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
 
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("SELECT * FROM admins WHERE email=%s", (email,))
-        admin = cur.fetchone()
-        cur.close(); db.close()
+        try:
+            db = get_db()
+            cur = db.cursor(dictionary=True)
+            cur.execute("SELECT * FROM admins WHERE email=%s", (email,))
+            admin = cur.fetchone()
+            cur.close(); db.close()
 
-        if admin and (password == admin["password"] or check_password_hash(admin["password"], password)):
-            session.clear()
-            session["admin_id"] = admin["id"]
-            session["admin_name"] = admin["name"]
-            return redirect(url_for("admin_dashboard"))
+            if admin and (password == admin["password"] or check_password_hash(admin["password"], password)):
+                session.clear()
+                session["admin_id"] = admin["id"]
+                session["admin_name"] = admin["name"]
+                return redirect(url_for("admin_dashboard"))
 
-        flash("Invalid admin credentials.", "danger")
+            flash("Invalid admin credentials.", "danger")
+        except Exception as e:
+            logger.error(f"[ADMIN LOGIN ERROR] Database error during admin login: {e}")
+            flash(f"Database Error: {e}", "danger")
+
     return render_template("admin_login.html")
 
 @app.route("/admin/logout")
@@ -787,33 +792,38 @@ def admin_logout():
 @app.route("/admin/dashboard")
 @admin_required
 def admin_dashboard():
-    db = get_db()
-    cur = db.cursor(dictionary=True)
+    try:
+        db = get_db()
+        cur = db.cursor(dictionary=True)
 
-    cur.execute("SELECT COUNT(*) AS n FROM complaints")
-    total_row = cur.fetchone()
-    total = total_row["n"] if total_row else 0
+        cur.execute("SELECT COUNT(*) AS n FROM complaints")
+        total_row = cur.fetchone()
+        total = total_row["n"] if total_row else 0
 
-    stats = {}
-    for status in ["Submitted", "Under Review", "In Progress", "Resolved", "Closed"]:
-        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status=%s", (status,))
-        st_row = cur.fetchone()
-        stats[status] = st_row["n"] if st_row else 0
+        stats = {}
+        for status in ["Submitted", "Under Review", "In Progress", "Resolved", "Closed"]:
+            cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status=%s", (status,))
+            st_row = cur.fetchone()
+            stats[status] = st_row["n"] if st_row else 0
 
-    cur.execute("""
-        SELECT c.*, u.name AS user_name, cat.name AS category_name
-        FROM complaints c
-        JOIN users u ON c.user_id=u.id
-        JOIN categories cat ON c.category_id=cat.id
-        ORDER BY c.created_at DESC
-    """)
-    complaints = cur.fetchall()
+        cur.execute("""
+            SELECT c.*, u.name AS user_name, cat.name AS category_name
+            FROM complaints c
+            JOIN users u ON c.user_id=u.id
+            JOIN categories cat ON c.category_id=cat.id
+            ORDER BY c.created_at DESC
+        """)
+        complaints = cur.fetchall()
 
-    logger.info(f"[ADMIN QUERY RESULT] Admin Dashboard fetched complaints from central database. Total record count: {len(complaints)}")
+        logger.info(f"[ADMIN QUERY RESULT] Admin Dashboard fetched complaints from central database. Total record count: {len(complaints)}")
 
-    cur.close(); db.close()
-    return render_template("admin_dashboard.html",
-                           total=total, stats=stats, complaints=complaints)
+        cur.close(); db.close()
+        return render_template("admin_dashboard.html",
+                               total=total, stats=stats, complaints=complaints)
+    except Exception as e:
+        logger.error(f"[ADMIN DASHBOARD ERROR] Database error loading dashboard: {e}")
+        flash(f"Database Error: {e}", "danger")
+        return render_template("admin_dashboard.html", total=0, stats={}, complaints=[])
 
 @app.route("/admin/update-status/<int:complaint_id>", methods=["POST"])
 @admin_required
