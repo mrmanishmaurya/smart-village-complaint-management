@@ -150,15 +150,39 @@ def get_db():
     if db_url and (db_url.startswith("mysql://") or db_url.startswith("mysql+pymysql://")):
         host, user, password, dbname, port = parse_db_url(db_url)
     else:
-        host = DB_HOST
-        user = DB_USER
-        password = DB_PASSWORD
-        dbname = DB_NAME
-        port = DB_PORT
+        host = os.environ.get("DB_HOST", "")
+        user = os.environ.get("DB_USER", "")
+        password = os.environ.get("DB_PASSWORD", "")
+        dbname = os.environ.get("DB_NAME", "smart_village")
+        port = int(os.environ.get("DB_PORT", 3306))
 
-    logger.info(f"[DB CONNECTING] Attempting database connection -> Host: '{host}', Port: {port}, Database Name: '{dbname}'")
+    # Detect if running in production on Render (or if explicit REQUIRE_CENTRAL_DB / RENDER environment variable is set)
+    is_render = (
+        os.environ.get("RENDER") is not None
+        or os.environ.get("RENDER_SERVICE_ID") is not None
+        or os.environ.get("FLASK_ENV") == "production"
+        or os.environ.get("ENV") == "production"
+        or os.environ.get("REQUIRE_CENTRAL_DB", "false").lower() in ("true", "1")
+    )
 
-    if PREFER_MYSQL and mysql_module:
+    if is_render:
+        logger.info(f"[PRODUCTION DB CONNECT] Render production environment detected. Connecting to Central Online MySQL Database -> Host: '{host}', Port: {port}, Database Name: '{dbname}', User: '{user}'")
+
+        if not host or host in ("localhost", "127.0.0.1"):
+            err_msg = (
+                "[DB CONFIG ERROR] Production Render environment detected, but DB_HOST is missing or set to localhost/127.0.0.1. "
+                "Render cannot connect to local MySQL. Please configure DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, and DB_PORT "
+                "in your Render Dashboard Environment Variables to point to your Central Online MySQL Database. "
+                "Fallback to SQLite is strictly DISABLED in production."
+            )
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
+
+        if not mysql_module:
+            err_msg = "[DB DRIVER ERROR] mysql.connector module is missing in production environment."
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
+
         try:
             connect_kwargs = {
                 "host": host,
@@ -173,16 +197,40 @@ def get_db():
 
             conn = mysql_module.connect(**connect_kwargs)
             DB_TYPE = "mysql"
-            logger.info(f"[DB CONNECT SUCCESS] Connected to Central MySQL Database -> Host: '{host}', Database Name: '{dbname}'")
+            logger.info(f"[DB CONNECT SUCCESS] Connected to Central Online MySQL Database -> Host: '{host}', Database Name: '{dbname}'")
             return conn
         except Exception as e:
-            logger.error(f"[DB CONNECT FAILURE] Could NOT connect to Central MySQL Database (Host: '{host}', DB: '{dbname}'): {e}")
-            if os.environ.get("REQUIRE_CENTRAL_DB", "false").lower() in ("true", "1") or os.environ.get("MYSQL_URL") or (DB_HOST and DB_HOST != "localhost"):
-                raise e
+            err_msg = f"[DB CONNECT FAILURE] Failed to connect to Central Online MySQL Database (Host: '{host}', DB: '{dbname}'): {e}"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
 
-    # Central SQLite database file if explicitly configured or shared fallback
+    # Local Development Handling
+    if not host:
+        host = "localhost"
+    if not user:
+        user = "root"
+
+    logger.info(f"[LOCAL DB CONNECT] Local development mode -> Host: '{host}', Port: {port}, Database: '{dbname}'")
+
+    if PREFER_MYSQL and mysql_module:
+        try:
+            connect_kwargs = {
+                "host": host,
+                "user": user,
+                "password": password,
+                "database": dbname,
+                "port": port,
+                "connect_timeout": 5
+            }
+            conn = mysql_module.connect(**connect_kwargs)
+            DB_TYPE = "mysql"
+            logger.info(f"[LOCAL DB CONNECT SUCCESS] Connected to local MySQL Database -> Host: '{host}', DB: '{dbname}'")
+            return conn
+        except Exception as e:
+            logger.warning(f"[LOCAL DB CONNECT NOTICE] Local MySQL unavailable ({e}). Falling back to local SQLite for local development.")
+
     shared_sqlite_path = os.environ.get("SQLITE_DB_PATH", os.path.join(USER_DATA_DIR, "smart_village.db"))
-    logger.warning(f"[DB FALLBACK] Using SQLite Database File: '{shared_sqlite_path}'")
+    logger.info(f"[LOCAL DB FALLBACK] Using local SQLite database: '{shared_sqlite_path}'")
     conn = sqlite3.connect(shared_sqlite_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
