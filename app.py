@@ -836,6 +836,16 @@ def api_health():
         "message": "Smart Village Backend is running"
     }), 200
 
+@app.route("/api/debug/routes", methods=["GET"])
+def debug_routes():
+    return jsonify({
+        "routes": sorted([
+            str(rule)
+            for rule in app.url_map.iter_rules()
+        ])
+    }), 200
+
+
 
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
