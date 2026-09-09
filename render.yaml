@@ -8,4 +8,15 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DB_TYPE
-        value: sqlite
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: smart_village
+      - key: DB_PORT
+        value: "3306"
+

@@ -1,9 +1,10 @@
-import sys
 import os
+import sys
 import socket
 import time
 import threading
 import urllib.request
+import webbrowser
 import logging
 
 try:
@@ -12,13 +13,10 @@ try:
 except ImportError:
     HAS_WEBVIEW = False
 
-import webbrowser
-from app import get_resource_path
-
 CENTRAL_BACKEND_URL = os.environ.get("CENTRAL_BACKEND_URL", "https://smart-village-complaint-management.onrender.com/smartvillage")
 USE_LOCAL_BACKEND = os.environ.get("USE_LOCAL_BACKEND", "false").lower() in ("true", "1")
 
-# Single instance lock mechanism
+# Single-instance lock port to avoid multiple server instances
 LOCK_PORT = 49152
 _lock_socket = None
 
@@ -40,35 +38,32 @@ def find_free_port(start_port=5000, max_attempts=100):
                 return port
             except OSError:
                 continue
-    return 5000
+    return start_port
 
 def start_local_flask(host, port):
     from app import app
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 def main():
-    if not check_single_instance():
-        print("Smart Village Complaint Management System is already running.")
-        sys.exit(0)
-
     target_url = CENTRAL_BACKEND_URL
 
+    if not check_single_instance():
+        print("Smart Village Management client is already running.")
+        webbrowser.open(target_url)
+        sys.exit(0)
+
     if USE_LOCAL_BACKEND:
-        print("[CLIENT MODE] Starting local development server...")
+        print("[CLIENT LAUNCHER] Starting local development backend...")
         port = find_free_port(5000)
         host = "127.0.0.1"
         server_thread = threading.Thread(target=start_local_flask, args=(host, port), daemon=True)
         server_thread.start()
         target_url = f"http://{host}:{port}/smartvillage"
     else:
-        print(f"[CLIENT MODE] Connecting directly to Central Online Backend: {target_url}")
-
-    icon_path = get_resource_path("smart_village.ico")
-    if not os.path.exists(icon_path):
-        icon_path = None
+        print(f"[CLIENT LAUNCHER] Connecting to Central Online Backend: {target_url}")
 
     if HAS_WEBVIEW:
-        print("Launching native desktop window...")
+        print(f"Opening Smart Village Desktop App at {target_url}...")
         webview.create_window(
             title="Smart Village Complaint Management System",
             url=target_url,
@@ -77,9 +72,9 @@ def main():
             min_size=(1024, 600),
             resizable=True
         )
-        webview.start(icon=icon_path if icon_path and os.path.exists(icon_path) else None)
+        webview.start()
     else:
-        print(f"Opening browser client window at {target_url}...")
+        print(f"Opening Smart Village Management interface at {target_url}...")
         webbrowser.open(target_url)
 
     if _lock_socket:
@@ -91,3 +86,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

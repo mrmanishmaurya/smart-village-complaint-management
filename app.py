@@ -1,13 +1,22 @@
 import os
 import sys
 import sqlite3
+import logging
 from datetime import datetime
 from functools import wraps
+from urllib.parse import urlparse, unquote
 
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
+# Configure logging for DB transaction tracking
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [SMART_VILLAGE_DB] %(message)s'
+)
+logger = logging.getLogger("SmartVillageDB")
 
 # Helper for PyInstaller resource resolution
 def get_resource_path(relative_path):
@@ -40,6 +49,7 @@ def add_cors_headers(response):
     return response
 
 
+
 # Helper to obtain a writable application data directory (%LOCALAPPDATA%\SmartVillage)
 def get_user_data_dir():
     local_app_data = os.environ.get("LOCALAPPDATA")
@@ -56,6 +66,16 @@ UPLOAD_FOLDER = os.path.join(USER_DATA_DIR, "uploads")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Central Database Configuration Helper
+def parse_db_url(url):
+    parsed = urlparse(url)
+    user = unquote(parsed.username) if parsed.username else ""
+    password = unquote(parsed.password) if parsed.password else ""
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 3306
+    dbname = parsed.path.lstrip("/") if parsed.path else "smart_village"
+    return host, user, password, dbname, port
 
 # Database Setup & Configuration
 DB_HOST = os.environ.get("DB_HOST", "localhost")
@@ -118,27 +138,49 @@ if PREFER_MYSQL:
 
 def get_db():
     global DB_TYPE
+    db_url = os.environ.get("MYSQL_URL") or os.environ.get("DATABASE_URL")
+    if db_url and (db_url.startswith("mysql://") or db_url.startswith("mysql+pymysql://")):
+        host, user, password, dbname, port = parse_db_url(db_url)
+    else:
+        host = DB_HOST
+        user = DB_USER
+        password = DB_PASSWORD
+        dbname = DB_NAME
+        port = DB_PORT
+
+    logger.info(f"[DB CONNECTING] Attempting database connection -> Host: '{host}', Port: {port}, Database Name: '{dbname}'")
+
     if PREFER_MYSQL and mysql_module:
         try:
-            conn = mysql_module.connect(
-                host=DB_HOST,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                database=DB_NAME,
-                port=DB_PORT
-            )
+            connect_kwargs = {
+                "host": host,
+                "user": user,
+                "password": password,
+                "database": dbname,
+                "port": port,
+                "connect_timeout": 10
+            }
+            if os.environ.get("DB_SSL_DISABLED", "").lower() in ("true", "1"):
+                connect_kwargs["ssl_disabled"] = True
+
+            conn = mysql_module.connect(**connect_kwargs)
             DB_TYPE = "mysql"
+            logger.info(f"[DB CONNECT SUCCESS] Connected to Central MySQL Database -> Host: '{host}', Database Name: '{dbname}'")
             return conn
         except Exception as e:
-            # Fall back to SQLite if MySQL is not accessible
-            DB_TYPE = "sqlite"
+            logger.error(f"[DB CONNECT FAILURE] Could NOT connect to Central MySQL Database (Host: '{host}', DB: '{dbname}'): {e}")
+            if os.environ.get("REQUIRE_CENTRAL_DB", "false").lower() in ("true", "1") or os.environ.get("MYSQL_URL") or (DB_HOST and DB_HOST != "localhost"):
+                raise e
 
-    db_path = os.path.join(USER_DATA_DIR, "smart_village.db")
-    conn = sqlite3.connect(db_path)
+    # Central SQLite database file if explicitly configured or shared fallback
+    shared_sqlite_path = os.environ.get("SQLITE_DB_PATH", os.path.join(USER_DATA_DIR, "smart_village.db"))
+    logger.warning(f"[DB FALLBACK] Using SQLite Database File: '{shared_sqlite_path}'")
+    conn = sqlite3.connect(shared_sqlite_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     DB_TYPE = "sqlite"
     return SQLiteConnectionAdapter(conn)
+
 
 def init_db():
     try:
@@ -483,16 +525,25 @@ def submit_complaint():
         complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
         cur2 = db.cursor()
-        cur2.execute("""
-            INSERT INTO complaints
-            (complaint_id,user_id,category_id,description,location,photo)
-            VALUES (%s,%s,%s,%s,%s,%s)
-        """, (complaint_id, session["user_id"], category_id,
-              description, location, filename))
-        db.commit()
-        cur2.close()
-        cur.close()
-        db.close()
+        try:
+            logger.info(f"[COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{session['user_id']}' into database...")
+            cur2.execute("""
+                INSERT INTO complaints
+                (complaint_id,user_id,category_id,description,location,photo)
+                VALUES (%s,%s,%s,%s,%s,%s)
+            """, (complaint_id, session["user_id"], category_id,
+                  description, location, filename))
+            db.commit()
+            logger.info(f"[COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to central database.")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[COMPLAINT INSERT FAILURE] Failed to insert complaint '{complaint_id}': {e}")
+            flash("Database transaction error while submitting complaint.", "danger")
+            return redirect(url_for("submit_complaint"))
+        finally:
+            cur2.close()
+            cur.close()
+            db.close()
 
         flash(f"Complaint submitted successfully. ID: {complaint_id}", "success")
         return redirect(url_for("dashboard"))
@@ -702,6 +753,8 @@ def admin_dashboard():
     """)
     complaints = cur.fetchall()
 
+    logger.info(f"[ADMIN QUERY RESULT] Admin Dashboard fetched complaints from central database. Total record count: {len(complaints)}")
+
     cur.close(); db.close()
     return render_template("admin_dashboard.html",
                            total=total, stats=stats, complaints=complaints)
@@ -724,6 +777,44 @@ def update_status(complaint_id):
     flash("Complaint status updated.", "success")
     return redirect(url_for("admin_dashboard"))
 
+@app.route("/admin/delete-complaint/<int:complaint_id>", methods=["POST"])
+@admin_required
+def admin_delete_complaint(complaint_id):
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT photo FROM complaints WHERE id=%s", (complaint_id,))
+    complaint = cur.fetchone()
+
+    if not complaint:
+        cur.close(); db.close()
+        flash("Complaint not found.", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    if complaint.get("photo"):
+        photo_path = os.path.join(app.config["UPLOAD_FOLDER"], complaint["photo"])
+        if os.path.exists(photo_path):
+            try:
+                os.remove(photo_path)
+            except OSError:
+                pass
+
+    cur2 = db.cursor()
+    try:
+        cur2.execute("DELETE FROM feedback WHERE complaint_id=%s", (complaint_id,))
+        cur2.execute("DELETE FROM complaints WHERE id=%s", (complaint_id,))
+        db.commit()
+        flash("Complaint deleted successfully.", "success")
+    except Exception as e:
+        db.rollback()
+        flash("Failed to delete complaint.", "danger")
+    finally:
+        cur2.close()
+        cur.close()
+        db.close()
+
+    return redirect(url_for("admin_dashboard"))
+
+
 # ==========================================
 # REST API ENDPOINTS FOR ANDROID MOBILE APP
 # ==========================================
@@ -733,9 +824,10 @@ from flask import jsonify
 @app.route("/api/health", methods=["GET"])
 def api_health():
     return jsonify({
-        "status": "success",
+        "status": "ok",
         "message": "Smart Village Backend is running"
-    })
+    }), 200
+
 
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
@@ -875,10 +967,11 @@ def api_dashboard(user_id):
 
 @app.route("/api/submit-complaint", methods=["POST"])
 def api_submit_complaint():
-    user_id = request.form.get("user_id")
-    category_id = request.form.get("category_id")
-    description = request.form.get("description", "").strip()
-    location = request.form.get("location", "").strip()
+    json_data = request.get_json(silent=True) or {}
+    user_id = request.form.get("user_id") or json_data.get("user_id")
+    category_id = request.form.get("category_id") or json_data.get("category_id")
+    description = (request.form.get("description") or json_data.get("description", "")).strip()
+    location = (request.form.get("location") or json_data.get("location", "")).strip()
     photo = request.files.get("photo")
 
     if not user_id or not category_id or not description:
@@ -897,15 +990,18 @@ def api_submit_complaint():
     db = get_db()
     cur = db.cursor()
     try:
+        logger.info(f"[API COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{user_id}' into central database...")
         cur.execute("""
             INSERT INTO complaints
             (complaint_id,user_id,category_id,description,location,photo)
             VALUES (%s,%s,%s,%s,%s,%s)
         """, (complaint_id, user_id, category_id, description, location, filename))
         db.commit()
+        logger.info(f"[API COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to central database.")
         return jsonify({"success": True, "message": "Complaint submitted successfully.", "complaint_id": complaint_id})
     except Exception as e:
         db.rollback()
+        logger.error(f"[API COMPLAINT INSERT FAILURE] Failed to insert complaint '{complaint_id}': {e}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         cur.close(); db.close()
@@ -923,6 +1019,8 @@ def api_admin_complaints():
     """)
     complaints = cur.fetchall()
     cur.close(); db.close()
+
+    logger.info(f"[API ADMIN QUERY RESULT] Admin API queried central database. Total complaints returned: {len(complaints)}")
     return jsonify({"success": True, "complaints": complaints})
 
 @app.route("/api/admin/update-status/<int:complaint_id>", methods=["POST"])
@@ -935,11 +1033,29 @@ def api_admin_update_status(complaint_id):
     db = get_db()
     cur = db.cursor()
     try:
-        cur.execute("UPDATE complaints SET status=%s, updated_at=NOW() WHERE id=%s", (new_status, complaint_id))
+        cur.execute("UPDATE complaints SET status=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s", (new_status, complaint_id))
         db.commit()
         return jsonify({"success": True, "message": "Status updated successfully."})
     except Exception as e:
         db.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        cur.close(); db.close()
+
+@app.route("/api/admin/delete-complaint/<int:complaint_id>", methods=["POST", "DELETE"])
+def api_admin_delete_complaint(complaint_id):
+    db = get_db()
+    cur = db.cursor()
+    try:
+        logger.info(f"[ADMIN DELETE] Admin requesting deletion of complaint ID: {complaint_id}")
+        cur.execute("DELETE FROM feedback WHERE complaint_id=%s", (complaint_id,))
+        cur.execute("DELETE FROM complaints WHERE id=%s", (complaint_id,))
+        db.commit()
+        logger.info(f"[ADMIN DELETE SUCCESS] Complaint ID {complaint_id} and associated feedback deleted.")
+        return jsonify({"success": True, "message": "Complaint deleted successfully."})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[ADMIN DELETE FAILURE] Failed to delete complaint ID {complaint_id}: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         cur.close(); db.close()

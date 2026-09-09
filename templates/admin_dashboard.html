@@ -86,10 +86,16 @@
                     </td>
 
                     <td>
-                        <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
-                            👁️ View Details
-                        </button>
+                        <div class="d-flex gap-1 align-items-center">
+                            <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
+                                👁️ View Details
+                            </button>
+                            <form method="post" action="{{ url_for('admin_delete_complaint', complaint_id=c.id) }}" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this complaint?');">
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                            </form>
+                        </div>
                     </td>
+
 
                     <td>
                         <form
@@ -187,4 +193,18 @@
 
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Automatic polling for new complaints on Admin Dashboard
+  (function() {
+    let autoRefreshTimer = setTimeout(function() {
+      // Do not refresh if user has a modal open
+      if (!document.querySelector('.modal.show')) {
+        window.location.reload();
+      }
+    }, 30000);
+  })();
+</script>
 {% endblock %}

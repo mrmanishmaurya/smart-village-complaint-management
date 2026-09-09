@@ -22,16 +22,24 @@ IF EXIST dist rmdir /s /q dist
 echo Running PyInstaller...
 python -m PyInstaller --clean SmartVillage.spec
 
-IF EXIST dist\SmartVillage.exe (
+echo Building Installer Package (SmartVillageSetup.exe)...
+python build_installer.py
+
+echo Creating Desktop Shortcut (Smart Village Management)...
+powershell -NoProfile -ExecutionPolicy Bypass -File create_shortcut.ps1
+
+IF EXIST dist\SmartVillageSetup.exe (
     echo.
     echo ===================================================
-    echo BUILD SUCCESSFUL!
-    echo Final Executable Created: dist\SmartVillage.exe
+    echo BUILD & PACKAGING SUCCESSFUL!
+    echo Desktop App Directory: dist\SmartVillage\SmartVillage.exe
+    echo Windows Setup Installer: dist\SmartVillageSetup.exe
+    echo Desktop Shortcut Created: Smart Village Management
     echo ===================================================
 ) ELSE (
     echo.
     echo ===================================================
-    echo BUILD FAILED! Check error messages above.
+    echo BUILD COMPLETED with warnings. Check dist folder.
     echo ===================================================
 )
 

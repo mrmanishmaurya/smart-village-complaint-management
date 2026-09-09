@@ -3,3 +3,7 @@ __pycache__/
 .env
 *.pyc
 static/uploads/*
+build/
+dist/
+scratch/
+installer_output/
