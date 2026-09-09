@@ -52,12 +52,17 @@ def add_cors_headers(response):
 
 # Helper to obtain a writable application data directory (%LOCALAPPDATA%\SmartVillage)
 def get_user_data_dir():
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        local_app_data = os.path.expanduser("~")
-    user_data_dir = os.path.join(local_app_data, "SmartVillage")
-    os.makedirs(user_data_dir, exist_ok=True)
-    return user_data_dir
+    try:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            local_app_data = os.path.expanduser("~")
+        user_data_dir = os.path.join(local_app_data, "SmartVillage")
+        os.makedirs(user_data_dir, exist_ok=True)
+        return user_data_dir
+    except Exception:
+        fallback = os.path.join(os.path.dirname(__file__), "static", "uploads")
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
 
 USER_DATA_DIR = get_user_data_dir()
 
@@ -65,7 +70,10 @@ USER_DATA_DIR = get_user_data_dir()
 UPLOAD_FOLDER = os.path.join(USER_DATA_DIR, "uploads")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+except Exception:
+    pass
 
 # Central Database Configuration Helper
 def parse_db_url(url):
