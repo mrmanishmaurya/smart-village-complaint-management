@@ -829,6 +829,14 @@ def admin_delete_complaint(complaint_id):
 
 from flask import jsonify
 
+@app.route("/__smartvillage_debug_2026")
+def smartvillage_debug():
+    return {
+        "application": "Smart Village Complaint Management System",
+        "deployment": "production",
+        "status": "correct_flask_app"
+    }
+
 @app.route("/api/health", methods=["GET"])
 def api_health():
     return jsonify({
@@ -844,6 +852,7 @@ def debug_routes():
             for rule in app.url_map.iter_rules()
         ])
     }), 200
+
 
 
 
