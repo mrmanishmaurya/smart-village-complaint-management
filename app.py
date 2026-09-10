@@ -294,10 +294,21 @@ def init_db():
                 INSERT OR IGNORE INTO categories (name) VALUES
                 ('Water Problem'), ('Road Issue'), ('Street Light'),
                 ('Drainage Issue'), ('Electricity'), ('Garbage'), ('Other');
-
-                INSERT OR IGNORE INTO admins (name, email, password)
-                VALUES ('Village Admin', 'admin@smartvillage.com', 'admin');
             """)
+            admin_email = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com").strip().lower()
+            admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
+            hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
+            cur.execute("SELECT id FROM admins WHERE email = ?", (admin_email,))
+            if not cur.fetchone():
+                cur.execute(
+                    "INSERT INTO admins (name, email, password) VALUES (?, ?, ?)",
+                    ('Village Admin', admin_email, hashed_admin_pwd)
+                )
+            else:
+                cur.execute(
+                    "UPDATE admins SET password = ? WHERE email = ?",
+                    (hashed_admin_pwd, admin_email)
+                )
             conn.commit()
             cur.close()
             db.close()
@@ -360,10 +371,23 @@ def init_db():
                 except Exception:
                     pass
             try:
-                cur.execute("INSERT IGNORE INTO admins (name, email, password) VALUES (%s, %s, %s)",
-                            ('Village Admin', 'admin@smartvillage.com', 'admin'))
-            except Exception:
-                pass
+                admin_email = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com").strip().lower()
+                admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
+                hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
+                cur.execute("SELECT id FROM admins WHERE email = %s", (admin_email,))
+                existing_admin = cur.fetchone()
+                if not existing_admin:
+                    cur.execute(
+                        "INSERT INTO admins (name, email, password) VALUES (%s, %s, %s)",
+                        ('Village Admin', admin_email, hashed_admin_pwd)
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE admins SET password = %s WHERE email = %s",
+                        (hashed_admin_pwd, admin_email)
+                    )
+            except Exception as e:
+                logger.error(f"[INIT DB ADMIN ERROR] Failed to setup admin account: {e}")
             db.commit()
             cur.close()
             db.close()
