@@ -16,9 +16,9 @@ services:
       - key: DB_PASSWORD
         sync: false
       - key: DB_NAME
-        value: smart_village
+        sync: false
       - key: DB_PORT
-        value: "3306"
+        sync: false
       - key: ADMIN_PASSWORD
         sync: false
 

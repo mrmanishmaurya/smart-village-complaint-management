@@ -227,8 +227,8 @@ def get_db():
         host = os.environ.get("DB_HOST", "")
         user = os.environ.get("DB_USER", "")
         password = os.environ.get("DB_PASSWORD", "")
-        dbname = os.environ.get("DB_NAME", "smart_village")
-        port = int(os.environ.get("DB_PORT", 3306))
+        dbname = os.environ.get("DB_NAME", "defaultdb")
+        port = int(os.environ.get("DB_PORT", 28711))
 
     # Detect if running in production on Render (or if explicit REQUIRE_CENTRAL_DB / RENDER environment variable is set)
     is_render = (
@@ -257,18 +257,21 @@ def get_db():
             logger.error(err_msg)
             raise RuntimeError(err_msg)
 
-        try:
-            connect_kwargs = {
-                "host": host,
-                "user": user,
-                "password": password,
-                "database": dbname,
-                "port": port,
-                "connect_timeout": 10
-            }
-            if os.environ.get("DB_SSL_DISABLED", "").lower() in ("true", "1"):
-                connect_kwargs["ssl_disabled"] = True
+        connect_kwargs = {
+            "host": host,
+            "user": user,
+            "password": password,
+            "database": dbname,
+            "port": port,
+            "connect_timeout": 10
+        }
+        if os.environ.get("DB_SSL_DISABLED", "").lower() in ("true", "1"):
+            connect_kwargs["ssl_disabled"] = True
+        else:
+            # Aiven MySQL requires SSL; verify_identity=False ensures compatibility with Aiven cloud SSL
+            connect_kwargs["ssl_verify_identity"] = False
 
+        try:
             pool = get_mysql_pool(connect_kwargs)
             if pool:
                 conn = pool.get_connection()
@@ -279,7 +282,20 @@ def get_db():
             logger.info(f"[DB CONNECT SUCCESS] Connected to Central Online MySQL Database -> Host: '{host}', Database Name: '{dbname}'")
             return conn
         except Exception as e:
-            err_msg = f"[DB CONNECT FAILURE] Failed to connect to Central Online MySQL Database (Host: '{host}', DB: '{dbname}'): {e}"
+            err_str = str(e)
+            # Automatic fallback retry with 'defaultdb' if user avnadmin does not have access to 'smart_village'
+            if ("1045" in err_str or "1049" in err_str or "Access denied" in err_str or "Unknown database" in err_str) and dbname != "defaultdb":
+                logger.warning(f"[DB CONNECT FALLBACK] Could not connect to database '{dbname}' ({err_str}). Retrying connection with 'defaultdb'...")
+                connect_kwargs["database"] = "defaultdb"
+                try:
+                    conn = mysql_module.connect(**connect_kwargs)
+                    DB_TYPE = "mysql"
+                    logger.info(f"[DB CONNECT SUCCESS] Connected to Central Online MySQL Database -> Host: '{host}', Database Name: 'defaultdb'")
+                    return conn
+                except Exception as ex:
+                    logger.error(f"[DB CONNECT FAILURE] Fallback retry to 'defaultdb' failed: {ex}")
+
+            err_msg = f"[DB CONNECT FAILURE] Failed to connect to Central Online MySQL Database (Host: '{host}', Port: {port}, DB: '{dbname}'): {e}"
             logger.error(err_msg)
             raise RuntimeError(err_msg)
 
