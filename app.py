@@ -327,6 +327,24 @@ def get_db():
             logger.info(f"[LOCAL DB CONNECT SUCCESS] Connected to local MySQL Database -> Host: '{host}', DB: '{dbname}'")
             return conn
         except Exception as e:
+            err_str = str(e)
+            if ("1049" in err_str or "Unknown database" in err_str):
+                try:
+                    logger.info(f"[LOCAL DB NOTICE] Database '{dbname}' missing. Creating '{dbname}' on local MySQL...")
+                    no_db_kwargs = dict(connect_kwargs)
+                    no_db_kwargs.pop("database", None)
+                    server_conn = mysql_module.connect(**no_db_kwargs)
+                    cur = server_conn.cursor()
+                    cur.execute(f"CREATE DATABASE IF NOT EXISTS `{dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
+                    cur.close()
+                    server_conn.close()
+                    conn = mysql_module.connect(**connect_kwargs)
+                    DB_TYPE = "mysql"
+                    logger.info(f"[LOCAL DB CONNECT SUCCESS] Created and connected to local MySQL Database -> Host: '{host}', DB: '{dbname}'")
+                    return conn
+                except Exception as ex:
+                    logger.warning(f"[LOCAL DB CREATION FAILED] {ex}")
+
             logger.warning(f"[LOCAL DB CONNECT NOTICE] Local MySQL unavailable ({e}). Falling back to local SQLite for local development.")
 
     shared_sqlite_path = os.environ.get("SQLITE_DB_PATH", os.path.join(USER_DATA_DIR, "smart_village.db"))

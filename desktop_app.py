@@ -54,12 +54,12 @@ def main():
     target_url = CENTRAL_BACKEND_URL
 
     if USE_LOCAL_BACKEND:
-        print("[CLIENT MODE] Starting local development server...")
-        port = find_free_port(5000)
-        host = "127.0.0.1"
+        print("[CLIENT MODE] Starting local development server on 0.0.0.0:5000...")
+        port = 5000
+        host = "0.0.0.0"
         server_thread = threading.Thread(target=start_local_flask, args=(host, port), daemon=True)
         server_thread.start()
-        target_url = f"http://{host}:{port}/smartvillage"
+        target_url = "http://127.0.0.1:5000/smartvillage"
     else:
         print(f"[CLIENT MODE] Connecting directly to Central Online Backend: {target_url}")
 
