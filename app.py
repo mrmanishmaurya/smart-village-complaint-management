@@ -135,14 +135,88 @@ class SQLiteConnectionAdapter:
     def close(self):
         self.conn.close()
 
-# Test MySQL Availability
+# Test MySQL Availability & Connection Pool Setup
 mysql_module = None
+mysql_pool = None
+
 if PREFER_MYSQL:
     try:
         import mysql.connector
+        from mysql.connector.pooling import MySQLConnectionPool
         mysql_module = mysql.connector
     except ImportError:
         mysql_module = None
+
+try:
+    from PIL import Image, ImageOps
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10MB upload limit
+
+import time
+_categories_cache = None
+_categories_cache_time = 0
+CACHE_TTL_SECONDS = 300
+
+def get_categories_cached():
+    global _categories_cache, _categories_cache_time
+    now = time.time()
+    if _categories_cache is not None and (now - _categories_cache_time) < CACHE_TTL_SECONDS:
+        return _categories_cache
+    
+    try:
+        db = get_db()
+        cur = db.cursor(dictionary=True)
+        cur.execute("SELECT * FROM categories ORDER BY name ASC")
+        categories = cur.fetchall()
+        cur.close(); db.close()
+        _categories_cache = categories
+        _categories_cache_time = now
+        return categories
+    except Exception as e:
+        logger.error(f"[CATEGORY CACHE ERROR] {e}")
+        return _categories_cache or []
+
+def save_optimized_photo(photo_file):
+    if not photo_file or not photo_file.filename or not allowed_file(photo_file.filename):
+        return None
+    safe_name = secure_filename(photo_file.filename)
+    filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    
+    if HAS_PIL:
+        try:
+            photo_file.stream.seek(0)
+            img = Image.open(photo_file.stream)
+            img = ImageOps.exif_transpose(img)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
+            img.save(filepath, "JPEG", optimize=True, quality=85)
+            return filename
+        except Exception as e:
+            logger.warning(f"[PHOTO PROCESS NOTICE] PIL optimization failed ({e}), falling back to direct save.")
+            photo_file.stream.seek(0)
+    
+    photo_file.save(filepath)
+    return filename
+
+def get_mysql_pool(connect_kwargs):
+    global mysql_pool
+    if mysql_pool is None and mysql_module is not None:
+        try:
+            from mysql.connector.pooling import MySQLConnectionPool
+            pool_kwargs = dict(connect_kwargs)
+            pool_kwargs["pool_name"] = "smart_village_pool"
+            pool_kwargs["pool_size"] = 5
+            mysql_pool = MySQLConnectionPool(**pool_kwargs)
+            logger.info("[DB POOL SUCCESS] Initialized MySQL Connection Pool (size=5)")
+        except Exception as e:
+            logger.warning(f"[DB POOL NOTICE] Could not initialize pool ({e}), using direct connections")
+            mysql_pool = None
+    return mysql_pool
 
 def get_db():
     global DB_TYPE
@@ -195,7 +269,12 @@ def get_db():
             if os.environ.get("DB_SSL_DISABLED", "").lower() in ("true", "1"):
                 connect_kwargs["ssl_disabled"] = True
 
-            conn = mysql_module.connect(**connect_kwargs)
+            pool = get_mysql_pool(connect_kwargs)
+            if pool:
+                conn = pool.get_connection()
+            else:
+                conn = mysql_module.connect(**connect_kwargs)
+
             DB_TYPE = "mysql"
             logger.info(f"[DB CONNECT SUCCESS] Connected to Central Online MySQL Database -> Host: '{host}', Database Name: '{dbname}'")
             return conn
@@ -222,7 +301,12 @@ def get_db():
                 "port": port,
                 "connect_timeout": 5
             }
-            conn = mysql_module.connect(**connect_kwargs)
+            pool = get_mysql_pool(connect_kwargs)
+            if pool:
+                conn = pool.get_connection()
+            else:
+                conn = mysql_module.connect(**connect_kwargs)
+
             DB_TYPE = "mysql"
             logger.info(f"[LOCAL DB CONNECT SUCCESS] Connected to local MySQL Database -> Host: '{host}', DB: '{dbname}'")
             return conn
@@ -295,20 +379,35 @@ def init_db():
                 ('Water Problem'), ('Road Issue'), ('Street Light'),
                 ('Drainage Issue'), ('Electricity'), ('Garbage'), ('Other');
             """)
-            admin_email = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com").strip().lower()
+            sqlite_indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)",
+                "CREATE INDEX IF NOT EXISTS idx_complaints_user_id ON complaints(user_id)",
+                "CREATE INDEX IF NOT EXISTS idx_complaints_category_id ON complaints(category_id)",
+                "CREATE INDEX IF NOT EXISTS idx_complaints_status ON complaints(status)",
+                "CREATE INDEX IF NOT EXISTS idx_complaints_created_at ON complaints(created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_feedback_complaint_id ON feedback(complaint_id)"
+            ]
+            for idx_sql in sqlite_indexes:
+                try:
+                    cur.execute(idx_sql)
+                except Exception:
+                    pass
+
             admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
             hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
-            cur.execute("SELECT id FROM admins WHERE email = ?", (admin_email,))
-            if not cur.fetchone():
-                cur.execute(
-                    "INSERT INTO admins (name, email, password) VALUES (?, ?, ?)",
-                    ('Village Admin', admin_email, hashed_admin_pwd)
-                )
-            else:
-                cur.execute(
-                    "UPDATE admins SET password = ? WHERE email = ?",
-                    (hashed_admin_pwd, admin_email)
-                )
+            admin_emails = ["manishmaurya9934@gmail.com", "admin@smartvillage.com"]
+            for a_email in admin_emails:
+                cur.execute("SELECT id FROM admins WHERE email = ?", (a_email,))
+                if not cur.fetchone():
+                    cur.execute(
+                        "INSERT INTO admins (name, email, password) VALUES (?, ?, ?)",
+                        ('Village Admin', a_email, hashed_admin_pwd)
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE admins SET password = ? WHERE email = ?",
+                        (hashed_admin_pwd, a_email)
+                    )
             conn.commit()
             cur.close()
             db.close()
@@ -365,27 +464,42 @@ def init_db():
                     FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE
                 )
             """)
+            mysql_indexes = [
+                "CREATE INDEX idx_users_phone ON users(phone)",
+                "CREATE INDEX idx_complaints_user_id ON complaints(user_id)",
+                "CREATE INDEX idx_complaints_category_id ON complaints(category_id)",
+                "CREATE INDEX idx_complaints_status ON complaints(status)",
+                "CREATE INDEX idx_complaints_created_at ON complaints(created_at)",
+                "CREATE INDEX idx_feedback_complaint_id ON feedback(complaint_id)"
+            ]
+            for idx_sql in mysql_indexes:
+                try:
+                    cur.execute(idx_sql)
+                except Exception:
+                    pass
+
             for cat in ['Water Problem', 'Road Issue', 'Street Light', 'Drainage Issue', 'Electricity', 'Garbage', 'Other']:
                 try:
                     cur.execute("INSERT IGNORE INTO categories (name) VALUES (%s)", (cat,))
                 except Exception:
                     pass
             try:
-                admin_email = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com").strip().lower()
                 admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
                 hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
-                cur.execute("SELECT id FROM admins WHERE email = %s", (admin_email,))
-                existing_admin = cur.fetchone()
-                if not existing_admin:
-                    cur.execute(
-                        "INSERT INTO admins (name, email, password) VALUES (%s, %s, %s)",
-                        ('Village Admin', admin_email, hashed_admin_pwd)
-                    )
-                else:
-                    cur.execute(
-                        "UPDATE admins SET password = %s WHERE email = %s",
-                        (hashed_admin_pwd, admin_email)
-                    )
+                admin_emails = ["manishmaurya9934@gmail.com", "admin@smartvillage.com"]
+                for a_email in admin_emails:
+                    cur.execute("SELECT id FROM admins WHERE email = %s", (a_email,))
+                    existing_admin = cur.fetchone()
+                    if not existing_admin:
+                        cur.execute(
+                            "INSERT INTO admins (name, email, password) VALUES (%s, %s, %s)",
+                            ('Village Admin', a_email, hashed_admin_pwd)
+                        )
+                    else:
+                        cur.execute(
+                            "UPDATE admins SET password = %s WHERE email = %s",
+                            (hashed_admin_pwd, a_email)
+                        )
             except Exception as e:
                 logger.error(f"[INIT DB ADMIN ERROR] Failed to setup admin account: {e}")
             db.commit()
@@ -439,25 +553,23 @@ def index():
         if row:
             stats["total_citizens"] = row["n"]
 
-        cur.execute("SELECT COUNT(*) AS n FROM complaints")
-        row = cur.fetchone()
-        if row:
-            stats["total_complaints"] = row["n"]
-
-        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Submitted', 'Under Review', 'In Progress')")
-        row = cur.fetchone()
-        if row:
-            stats["under_process"] = row["n"]
-
-        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved', 'Closed')")
-        row = cur.fetchone()
-        if row:
-            stats["resolved"] = row["n"]
+        cur.execute("""
+            SELECT 
+                COUNT(*) AS total_complaints,
+                SUM(CASE WHEN status IN ('Submitted', 'Under Review', 'In Progress') THEN 1 ELSE 0 END) AS under_process,
+                SUM(CASE WHEN status IN ('Resolved', 'Closed') THEN 1 ELSE 0 END) AS resolved
+            FROM complaints
+        """)
+        c_row = cur.fetchone()
+        if c_row:
+            stats["total_complaints"] = c_row["total_complaints"] or 0
+            stats["under_process"] = c_row["under_process"] or 0
+            stats["resolved"] = c_row["resolved"] or 0
 
         cur.close()
         db.close()
     except Exception as e:
-        print(f"Stats calculation notice: {e}")
+        logger.error(f"Stats calculation notice: {e}")
 
     return render_template("index.html", stats=stats)
 
@@ -576,10 +688,7 @@ def dashboard():
 @app.route("/submit-complaint", methods=["GET", "POST"])
 @citizen_required
 def submit_complaint():
-    db = get_db()
-    cur = db.cursor(dictionary=True)
-    cur.execute("SELECT * FROM categories ORDER BY name")
-    categories = cur.fetchall()
+    categories = get_categories_cached()
 
     if request.method == "POST":
         category_id = request.form["category_id"]
@@ -589,21 +698,18 @@ def submit_complaint():
 
         if not description:
             flash("Complaint description is required.", "danger")
-            cur.close(); db.close()
             return redirect(url_for("submit_complaint"))
 
         filename = None
         if photo and photo.filename:
             if not allowed_file(photo.filename):
                 flash("Only JPG, JPEG, PNG and WEBP files are allowed.", "danger")
-                cur.close(); db.close()
                 return redirect(url_for("submit_complaint"))
-            safe_name = secure_filename(photo.filename)
-            filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-            photo.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+            filename = save_optimized_photo(photo)
 
         complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
+        db = get_db()
         cur2 = db.cursor()
         try:
             logger.info(f"[COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{session['user_id']}' into database...")
@@ -820,18 +926,29 @@ def admin_dashboard():
         db = get_db()
         cur = db.cursor(dictionary=True)
 
-        cur.execute("SELECT COUNT(*) AS n FROM complaints")
-        total_row = cur.fetchone()
-        total = total_row["n"] if total_row else 0
-
-        stats = {}
-        for status in ["Submitted", "Under Review", "In Progress", "Resolved", "Closed"]:
-            cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status=%s", (status,))
-            st_row = cur.fetchone()
-            stats[status] = st_row["n"] if st_row else 0
+        cur.execute("""
+            SELECT 
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'Submitted' THEN 1 ELSE 0 END) AS st_submitted,
+                SUM(CASE WHEN status = 'Under Review' THEN 1 ELSE 0 END) AS st_review,
+                SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS st_progress,
+                SUM(CASE WHEN status = 'Resolved' THEN 1 ELSE 0 END) AS st_resolved,
+                SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS st_closed
+            FROM complaints
+        """)
+        agg_row = cur.fetchone() or {}
+        total = agg_row.get("total") or 0
+        stats = {
+            "Submitted": agg_row.get("st_submitted") or 0,
+            "Under Review": agg_row.get("st_review") or 0,
+            "In Progress": agg_row.get("st_progress") or 0,
+            "Resolved": agg_row.get("st_resolved") or 0,
+            "Closed": agg_row.get("st_closed") or 0
+        }
 
         cur.execute("""
-            SELECT c.*, u.name AS user_name, cat.name AS category_name
+            SELECT c.id, c.complaint_id, c.description, c.location, c.photo, c.status, c.created_at,
+                   u.name AS user_name, cat.name AS category_name
             FROM complaints c
             JOIN users u ON c.user_id=u.id
             JOIN categories cat ON c.category_id=cat.id
@@ -952,10 +1069,23 @@ def api_stats():
     try:
         db = get_db()
         cur = db.cursor(dictionary=True)
-        cur.execute("SELECT COUNT(*) AS n FROM users"); r = cur.fetchone(); stats["citizens"] = stats["total_citizens"] = r["n"] if r else 0
-        cur.execute("SELECT COUNT(*) AS n FROM complaints"); r = cur.fetchone(); stats["complaints"] = stats["total_complaints"] = r["n"] if r else 0
-        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Submitted', 'Under Review', 'In Progress')"); r = cur.fetchone(); stats["in_progress"] = stats["under_process"] = r["n"] if r else 0
-        cur.execute("SELECT COUNT(*) AS n FROM complaints WHERE status IN ('Resolved', 'Closed')"); r = cur.fetchone(); stats["resolved"] = r["n"] if r else 0
+        cur.execute("SELECT COUNT(*) AS n FROM users")
+        r = cur.fetchone()
+        stats["citizens"] = stats["total_citizens"] = r["n"] if r else 0
+
+        cur.execute("""
+            SELECT 
+                COUNT(*) AS total_complaints,
+                SUM(CASE WHEN status IN ('Submitted', 'Under Review', 'In Progress') THEN 1 ELSE 0 END) AS under_process,
+                SUM(CASE WHEN status IN ('Resolved', 'Closed') THEN 1 ELSE 0 END) AS resolved
+            FROM complaints
+        """)
+        c_row = cur.fetchone()
+        if c_row:
+            stats["complaints"] = stats["total_complaints"] = c_row["total_complaints"] or 0
+            stats["in_progress"] = stats["under_process"] = c_row["under_process"] or 0
+            stats["resolved"] = c_row["resolved"] or 0
+
         cur.close(); db.close()
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -972,11 +1102,7 @@ def api_stats():
 @app.route("/api/categories", methods=["GET"])
 def api_categories():
     try:
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("SELECT * FROM categories ORDER BY name")
-        cats = cur.fetchall()
-        cur.close(); db.close()
+        cats = get_categories_cached()
         return jsonify({"success": True, "categories": cats})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1090,9 +1216,7 @@ def api_submit_complaint():
     if photo and photo.filename:
         if not allowed_file(photo.filename):
             return jsonify({"success": False, "message": "Invalid file type. Allowed: JPG, PNG, WEBP."}), 400
-        safe_name = secure_filename(photo.filename)
-        filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-        photo.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+        filename = save_optimized_photo(photo)
 
     complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
