@@ -1256,9 +1256,11 @@ def api_register():
     if not name or not email or not password:
         return jsonify({"success": False, "message": "Name, email and password are required."}), 400
 
-    db = get_db()
-    cur = db.cursor()
+    cur = None
+    db = None
     try:
+        db = get_db()
+        cur = db.cursor()
         cur.execute(
             "INSERT INTO users (name,email,phone,password) VALUES (%s,%s,%s,%s)",
             (name, email, phone, generate_password_hash(password))
@@ -1266,10 +1268,23 @@ def api_register():
         db.commit()
         return jsonify({"success": True, "message": "Registration successful. Please login."})
     except Exception as e:
-        db.rollback()
-        return jsonify({"success": False, "message": "Email already registered or database error."}), 400
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        return jsonify({"success": False, "message": f"Email already registered or database error: {e}"}), 400
     finally:
-        cur.close(); db.close()
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -1332,38 +1347,70 @@ def api_admin_login():
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
 
-    db = get_db()
-    cur = db.cursor(dictionary=True)
-    cur.execute("SELECT * FROM admins WHERE email=%s", (email,))
-    admin = cur.fetchone()
-    cur.close(); db.close()
+    cur = None
+    db = None
+    try:
+        db = get_db()
+        cur = db.cursor(dictionary=True)
+        cur.execute("SELECT * FROM admins WHERE email=%s", (email,))
+        admin = cur.fetchone()
 
-    if admin and (password == admin["password"] or check_password_hash(admin["password"], password)):
-        return jsonify({
-            "success": True,
-            "message": "Admin login successful.",
-            "admin": {
-                "id": admin["id"],
-                "name": admin["name"],
-                "email": admin["email"]
-            }
-        })
-    return jsonify({"success": False, "message": "Invalid admin credentials."}), 401
+        if admin and (password == admin["password"] or check_password_hash(admin["password"], password)):
+            return jsonify({
+                "success": True,
+                "message": "Admin login successful.",
+                "admin": {
+                    "id": admin["id"],
+                    "name": admin["name"],
+                    "email": admin["email"]
+                }
+            })
+        return jsonify({"success": False, "message": "Invalid admin credentials."}), 401
+    except Exception as e:
+        logger.error(f"[API ADMIN LOGIN ERROR] {e}")
+        return jsonify({"success": False, "message": f"Server database error: {e}"}), 500
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/dashboard/<int:user_id>", methods=["GET"])
 def api_dashboard(user_id):
-    db = get_db()
-    cur = db.cursor(dictionary=True)
-    cur.execute("""
-        SELECT c.*, cat.name AS category_name
-        FROM complaints c
-        JOIN categories cat ON c.category_id = cat.id
-        WHERE c.user_id=%s
-        ORDER BY c.created_at DESC
-    """, (user_id,))
-    complaints = cur.fetchall()
-    cur.close(); db.close()
-    return jsonify({"success": True, "complaints": complaints})
+    cur = None
+    db = None
+    try:
+        db = get_db()
+        cur = db.cursor(dictionary=True)
+        cur.execute("""
+            SELECT c.*, cat.name AS category_name
+            FROM complaints c
+            JOIN categories cat ON c.category_id = cat.id
+            WHERE c.user_id=%s
+            ORDER BY c.created_at DESC
+        """, (user_id,))
+        complaints = cur.fetchall()
+        return jsonify({"success": True, "complaints": complaints})
+    except Exception as e:
+        logger.error(f"[API DASHBOARD ERROR] {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/submit-complaint", methods=["POST"])
 def api_submit_complaint():
@@ -1385,9 +1432,11 @@ def api_submit_complaint():
 
     complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
-    db = get_db()
-    cur = db.cursor()
+    cur = None
+    db = None
     try:
+        db = get_db()
+        cur = db.cursor()
         logger.info(f"[API COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{user_id}' into central database...")
         cur.execute("""
             INSERT INTO complaints
@@ -1398,28 +1447,56 @@ def api_submit_complaint():
         logger.info(f"[API COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to central database.")
         return jsonify({"success": True, "message": "Complaint submitted successfully.", "complaint_id": complaint_id})
     except Exception as e:
-        db.rollback()
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         logger.error(f"[API COMPLAINT INSERT FAILURE] Failed to insert complaint '{complaint_id}': {e}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        cur.close(); db.close()
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/admin/complaints", methods=["GET"])
 def api_admin_complaints():
-    db = get_db()
-    cur = db.cursor(dictionary=True)
-    cur.execute("""
-        SELECT c.*, u.name AS citizen_name, u.email AS citizen_email, u.phone AS citizen_phone, cat.name AS category_name
-        FROM complaints c
-        JOIN users u ON c.user_id = u.id
-        JOIN categories cat ON c.category_id = cat.id
-        ORDER BY c.created_at DESC
-    """)
-    complaints = cur.fetchall()
-    cur.close(); db.close()
-
-    logger.info(f"[API ADMIN QUERY RESULT] Admin API queried central database. Total complaints returned: {len(complaints)}")
-    return jsonify({"success": True, "complaints": complaints})
+    cur = None
+    db = None
+    try:
+        db = get_db()
+        cur = db.cursor(dictionary=True)
+        cur.execute("""
+            SELECT c.*, u.name AS citizen_name, u.email AS citizen_email, u.phone AS citizen_phone, cat.name AS category_name
+            FROM complaints c
+            JOIN users u ON c.user_id = u.id
+            JOIN categories cat ON c.category_id = cat.id
+            ORDER BY c.created_at DESC
+        """)
+        complaints = cur.fetchall()
+        logger.info(f"[API ADMIN QUERY RESULT] Admin API queried central database. Total complaints returned: {len(complaints)}")
+        return jsonify({"success": True, "complaints": complaints})
+    except Exception as e:
+        logger.error(f"[API ADMIN COMPLAINTS ERROR] {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/admin/update-status/<int:complaint_id>", methods=["POST"])
 def api_admin_update_status(complaint_id):
@@ -1428,23 +1505,40 @@ def api_admin_update_status(complaint_id):
     if not new_status:
         return jsonify({"success": False, "message": "Status is required."}), 400
 
-    db = get_db()
-    cur = db.cursor()
+    cur = None
+    db = None
     try:
+        db = get_db()
+        cur = db.cursor()
         cur.execute("UPDATE complaints SET status=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s", (new_status, complaint_id))
         db.commit()
         return jsonify({"success": True, "message": "Status updated successfully."})
     except Exception as e:
-        db.rollback()
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        cur.close(); db.close()
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/admin/delete-complaint/<int:complaint_id>", methods=["POST", "DELETE"])
 def api_admin_delete_complaint(complaint_id):
-    db = get_db()
-    cur = db.cursor()
+    cur = None
+    db = None
     try:
+        db = get_db()
+        cur = db.cursor()
         logger.info(f"[ADMIN DELETE] Admin requesting deletion of complaint ID: {complaint_id}")
         cur.execute("DELETE FROM feedback WHERE complaint_id=%s", (complaint_id,))
         cur.execute("DELETE FROM complaints WHERE id=%s", (complaint_id,))
@@ -1452,20 +1546,35 @@ def api_admin_delete_complaint(complaint_id):
         logger.info(f"[ADMIN DELETE SUCCESS] Complaint ID {complaint_id} and associated feedback deleted.")
         return jsonify({"success": True, "message": "Complaint deleted successfully."})
     except Exception as e:
-        db.rollback()
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         logger.error(f"[ADMIN DELETE FAILURE] Failed to delete complaint ID {complaint_id}: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        cur.close(); db.close()
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 @app.route("/api/delete-complaint/<int:complaint_id>", methods=["POST", "DELETE"])
 def api_delete_complaint(complaint_id):
     data = request.get_json(silent=True) or request.form
     user_id = data.get("user_id")
 
-    db = get_db()
-    cur = db.cursor()
+    cur = None
+    db = None
     try:
+        db = get_db()
+        cur = db.cursor()
         if user_id:
             cur.execute("DELETE FROM complaints WHERE id=%s AND user_id=%s", (complaint_id, user_id))
         else:
@@ -1473,10 +1582,23 @@ def api_delete_complaint(complaint_id):
         db.commit()
         return jsonify({"success": True, "message": "Complaint deleted successfully."})
     except Exception as e:
-        db.rollback()
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        cur.close(); db.close()
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
