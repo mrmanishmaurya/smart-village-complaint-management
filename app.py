@@ -218,21 +218,8 @@ def get_mysql_pool(connect_kwargs):
             mysql_pool = None
     return mysql_pool
 
-def safe_verify_password(stored_password, provided_password):
-    if not stored_password or not provided_password:
-        return False
-    try:
-        if check_password_hash(stored_password, provided_password):
-            return True
-    except (ValueError, TypeError, Exception) as e:
-        logger.warning(f"[PASSWORD VERIFY NOTICE] check_password_hash raised exception ({e}), checking fallback.")
-
-    if stored_password == provided_password:
-        return True
-    return False
-
 def get_db():
-    global DB_TYPE, mysql_pool
+    global DB_TYPE
     db_url = os.environ.get("MYSQL_URL") or os.environ.get("DATABASE_URL")
     if db_url and (db_url.startswith("mysql://") or db_url.startswith("mysql+pymysql://")):
         host, user, password, dbname, port = parse_db_url(db_url)
@@ -281,25 +268,29 @@ def get_db():
         if os.environ.get("DB_SSL_DISABLED", "").lower() in ("true", "1"):
             connect_kwargs["ssl_disabled"] = True
         else:
-            # Aiven MySQL requires SSL; verify_identity=False ensures compatibility with Aiven cloud SSL
-            connect_kwargs["ssl_verify_identity"] = False
+            db_ssl_ca = os.environ.get("DB_SSL_CA", "")
+            if db_ssl_ca:
+                if os.path.exists(db_ssl_ca):
+                    connect_kwargs["ssl_ca"] = db_ssl_ca
+                elif "-----BEGIN CERTIFICATE-----" in db_ssl_ca:
+                    ca_path = os.path.join(USER_DATA_DIR, "aiven_ca.pem")
+                    try:
+                        with open(ca_path, "w", encoding="utf-8") as f:
+                            f.write(db_ssl_ca)
+                        connect_kwargs["ssl_ca"] = ca_path
+                    except Exception as ca_err:
+                        logger.warning(f"[SSL CA NOTICE] Could not write CA PEM: {ca_err}")
+                        connect_kwargs["ssl_verify_identity"] = False
+            else:
+                # Aiven MySQL requires SSL; verify_identity=False ensures compatibility with Aiven cloud SSL
+                connect_kwargs["ssl_verify_identity"] = False
 
         try:
             pool = get_mysql_pool(connect_kwargs)
             if pool:
-                try:
-                    conn = pool.get_connection()
-                    if hasattr(conn, 'ping'):
-                        conn.ping(reconnect=True, attempts=3, delay=1)
-                    DB_TYPE = "mysql"
-                    return conn
-                except Exception as pool_err:
-                    logger.warning(f"[DB POOL NOTICE] Pooled connection stale ({pool_err}). Establishing direct connection...")
-                    mysql_pool = None
-
-            conn = mysql_module.connect(**connect_kwargs)
-            if hasattr(conn, 'ping'):
-                conn.ping(reconnect=True, attempts=3, delay=1)
+                conn = pool.get_connection()
+            else:
+                conn = mysql_module.connect(**connect_kwargs)
 
             DB_TYPE = "mysql"
             logger.info(f"[DB CONNECT SUCCESS] Connected to Central Online MySQL Database -> Host: '{host}', Database Name: '{dbname}'")
@@ -312,8 +303,6 @@ def get_db():
                 connect_kwargs["database"] = "defaultdb"
                 try:
                     conn = mysql_module.connect(**connect_kwargs)
-                    if hasattr(conn, 'ping'):
-                        conn.ping(reconnect=True, attempts=3, delay=1)
                     DB_TYPE = "mysql"
                     logger.info(f"[DB CONNECT SUCCESS] Connected to Central Online MySQL Database -> Host: '{host}', Database Name: 'defaultdb'")
                     return conn
@@ -344,18 +333,9 @@ def get_db():
             }
             pool = get_mysql_pool(connect_kwargs)
             if pool:
-                try:
-                    conn = pool.get_connection()
-                    if hasattr(conn, 'ping'):
-                        conn.ping(reconnect=True, attempts=3, delay=1)
-                    DB_TYPE = "mysql"
-                    return conn
-                except Exception:
-                    mysql_pool = None
-
-            conn = mysql_module.connect(**connect_kwargs)
-            if hasattr(conn, 'ping'):
-                conn.ping(reconnect=True, attempts=3, delay=1)
+                conn = pool.get_connection()
+            else:
+                conn = mysql_module.connect(**connect_kwargs)
 
             DB_TYPE = "mysql"
             logger.info(f"[LOCAL DB CONNECT SUCCESS] Connected to local MySQL Database -> Host: '{host}', DB: '{dbname}'")
@@ -626,20 +606,18 @@ def index():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        email = request.form.get("email", "").strip().lower()
+        name = request.form["name"].strip()
+        email = request.form["email"].strip().lower()
         phone = request.form.get("phone", "").strip()
-        password = request.form.get("password", "")
+        password = request.form["password"]
 
         if not name or not email or not password:
             flash("Please fill all required fields.", "danger")
             return redirect(url_for("register"))
 
-        cur = None
-        db = None
+        db = get_db()
+        cur = db.cursor()
         try:
-            db = get_db()
-            cur = db.cursor()
             cur.execute(
                 "INSERT INTO users (name,email,phone,password) VALUES (%s,%s,%s,%s)",
                 (name, email, phone, generate_password_hash(password))
@@ -648,88 +626,50 @@ def register():
             flash("Registration successful. Please login.", "success")
             return redirect(url_for("login"))
         except Exception as e:
-            if db:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-            logger.error(f"[REGISTER ERROR] Registration error for {email}: {e}")
+            db.rollback()
             flash("Email already registered or registration error.", "danger")
-            return redirect(url_for("register"))
         finally:
-            if cur:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
-            if db:
-                try:
-                    db.close()
-                except Exception:
-                    pass
+            cur.close()
+            db.close()
     return render_template("register.html")
 
 @app.route("/login", methods=["GET", "POST"])
 @app.route("/citizen-login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email_or_phone = request.form.get("email", "").strip().lower()
+        email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
-        if not email_or_phone or not password:
-            flash("Please enter both email/phone and password.", "danger")
+        if not email or not password:
+            flash("Please enter both email and password.", "danger")
             return render_template("login.html")
 
-        cur = None
-        db = None
         try:
             db = get_db()
             cur = db.cursor(dictionary=True)
-            cur.execute("SELECT * FROM users WHERE email=%s OR phone=%s", (email_or_phone, email_or_phone))
+            cur.execute("SELECT * FROM users WHERE email=%s", (email,))
             user = cur.fetchone()
+            cur.close()
+            db.close()
 
-            if user and safe_verify_password(user["password"], password):
-                # Auto-upgrade plain text password to hashed format in database
-                if user["password"] == password:
-                    try:
-                        new_hash = generate_password_hash(password)
-                        cur2 = db.cursor()
-                        cur2.execute("UPDATE users SET password=%s WHERE id=%s", (new_hash, user["id"]))
-                        db.commit()
-                        cur2.close()
-                    except Exception as up_err:
-                        logger.warning(f"[PASSWORD UPGRADE NOTICE] Could not upgrade password hash: {up_err}")
-
+            if user and check_password_hash(user["password"], password):
                 session.clear()
                 session["user_id"] = user["id"]
                 session["user_name"] = user["name"]
-                logger.info(f"[CITIZEN LOGIN SUCCESS] User ID {user['id']} ('{user['name']}') logged in successfully.")
                 return redirect(url_for("dashboard"))
 
-            flash("Invalid email/phone or password.", "danger")
+            flash("Invalid email or password.", "danger")
         except Exception as e:
-            logger.error(f"[CITIZEN LOGIN ERROR] Exception during citizen login: {e}")
-            flash("Database or server connection issue. Please try again.", "danger")
-        finally:
-            if cur:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
-            if db:
-                try:
-                    db.close()
-                except Exception:
-                    pass
-
+            logger.error(f"[CITIZEN LOGIN FAILURE] Database exception during citizen login: {e}")
+            flash("Server is temporarily unavailable. Please try again.", "danger")
     return render_template("login.html")
 
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        new_password = request.form.get("new_password", "")
-        confirm_password = request.form.get("confirm_password", "")
+        email = request.form["email"].strip().lower()
+        new_password = request.form["new_password"]
+        confirm_password = request.form["confirm_password"]
 
         if not email or not new_password or not confirm_password:
             flash("Please fill all required fields.", "danger")
@@ -739,39 +679,25 @@ def forgot_password():
             flash("Passwords do not match.", "danger")
             return redirect(url_for("forgot_password"))
 
-        cur = None
-        db = None
-        try:
-            db = get_db()
-            cur = db.cursor(dictionary=True)
-            cur.execute("SELECT * FROM users WHERE email=%s", (email,))
-            user = cur.fetchone()
+        db = get_db()
+        cur = db.cursor(dictionary=True)
+        cur.execute("SELECT * FROM users WHERE email=%s", (email,))
+        user = cur.fetchone()
 
-            if not user:
-                flash("No citizen account found with this email address.", "danger")
-                return redirect(url_for("forgot_password"))
-
-            hashed = generate_password_hash(new_password)
-            cur.execute("UPDATE users SET password=%s WHERE email=%s", (hashed, email))
-            db.commit()
-
-            flash("Password reset successfully! Please login with your new password.", "success")
-            return redirect(url_for("login"))
-        except Exception as e:
-            logger.error(f"[FORGOT PASSWORD ERROR] {e}")
-            flash("Error resetting password. Please try again.", "danger")
+        if not user:
+            cur.close()
+            db.close()
+            flash("No citizen account found with this email address.", "danger")
             return redirect(url_for("forgot_password"))
-        finally:
-            if cur:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
-            if db:
-                try:
-                    db.close()
-                except Exception:
-                    pass
+
+        hashed = generate_password_hash(new_password)
+        cur.execute("UPDATE users SET password=%s WHERE email=%s", (hashed, email))
+        db.commit()
+        cur.close()
+        db.close()
+
+        flash("Password reset successfully! Please login with your new password.", "success")
+        return redirect(url_for("login"))
 
     return render_template("forgot_password.html")
 
@@ -783,35 +709,19 @@ def logout():
 @app.route("/dashboard")
 @citizen_required
 def dashboard():
-    cur = None
-    db = None
-    try:
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("""
-            SELECT c.*, cat.name AS category_name
-            FROM complaints c
-            JOIN categories cat ON c.category_id = cat.id
-            WHERE c.user_id=%s
-            ORDER BY c.created_at DESC
-        """, (session["user_id"],))
-        complaints = cur.fetchall()
-        return render_template("dashboard.html", complaints=complaints)
-    except Exception as e:
-        logger.error(f"[CITIZEN DASHBOARD ERROR] Error loading dashboard for user {session.get('user_id')}: {e}")
-        flash("Error loading dashboard data. Please try again.", "danger")
-        return render_template("dashboard.html", complaints=[])
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT c.*, cat.name AS category_name
+        FROM complaints c
+        JOIN categories cat ON c.category_id = cat.id
+        WHERE c.user_id=%s
+        ORDER BY c.created_at DESC
+    """, (session["user_id"],))
+    complaints = cur.fetchall()
+    cur.close()
+    db.close()
+    return render_template("dashboard.html", complaints=complaints)
 
 @app.route("/submit-complaint", methods=["GET", "POST"])
 @citizen_required
@@ -819,8 +729,8 @@ def submit_complaint():
     categories = get_categories_cached()
 
     if request.method == "POST":
-        category_id = request.form.get("category_id")
-        description = request.form.get("description", "").strip()
+        category_id = request.form["category_id"]
+        description = request.form["description"].strip()
         location = request.form.get("location", "").strip()
         photo = request.files.get("photo")
 
@@ -837,13 +747,11 @@ def submit_complaint():
 
         complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
-        cur2 = None
-        db = None
+        db = get_db()
+        cur = db.cursor()
         try:
-            db = get_db()
-            cur2 = db.cursor()
             logger.info(f"[COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{session['user_id']}' into database...")
-            cur2.execute("""
+            cur.execute("""
                 INSERT INTO complaints
                 (complaint_id,user_id,category_id,description,location,photo)
                 VALUES (%s,%s,%s,%s,%s,%s)
@@ -854,25 +762,13 @@ def submit_complaint():
             flash(f"Complaint submitted successfully. ID: {complaint_id}", "success")
             return redirect(url_for("dashboard"))
         except Exception as e:
-            if db:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
+            db.rollback()
             logger.error(f"[COMPLAINT INSERT FAILURE] Failed to insert complaint '{complaint_id}': {e}")
             flash("Database transaction error while submitting complaint.", "danger")
             return redirect(url_for("submit_complaint"))
         finally:
-            if cur2:
-                try:
-                    cur2.close()
-                except Exception:
-                    pass
-            if db:
-                try:
-                    db.close()
-                except Exception:
-                    pass
+            cur.close()
+            db.close()
 
     return render_template("submit_complaint.html", categories=categories)
 
@@ -1127,33 +1023,30 @@ def update_status(complaint_id):
 def admin_delete_complaint(complaint_id):
     db = get_db()
     cur = db.cursor(dictionary=True)
-    cur.execute("SELECT photo FROM complaints WHERE id=%s", (complaint_id,))
-    complaint = cur.fetchone()
-
-    if not complaint:
-        cur.close(); db.close()
-        flash("Complaint not found.", "danger")
-        return redirect(url_for("admin_dashboard"))
-
-    if complaint.get("photo"):
-        photo_path = os.path.join(app.config["UPLOAD_FOLDER"], complaint["photo"])
-        if os.path.exists(photo_path):
-            try:
-                os.remove(photo_path)
-            except OSError:
-                pass
-
-    cur2 = db.cursor()
     try:
-        cur2.execute("DELETE FROM feedback WHERE complaint_id=%s", (complaint_id,))
-        cur2.execute("DELETE FROM complaints WHERE id=%s", (complaint_id,))
+        cur.execute("SELECT photo FROM complaints WHERE id=%s", (complaint_id,))
+        complaint = cur.fetchone()
+
+        if not complaint:
+            flash("Complaint not found.", "danger")
+            return redirect(url_for("admin_dashboard"))
+
+        if complaint.get("photo"):
+            photo_path = os.path.join(app.config["UPLOAD_FOLDER"], complaint["photo"])
+            if os.path.exists(photo_path):
+                try:
+                    os.remove(photo_path)
+                except OSError:
+                    pass
+
+        cur.execute("DELETE FROM feedback WHERE complaint_id=%s", (complaint_id,))
+        cur.execute("DELETE FROM complaints WHERE id=%s", (complaint_id,))
         db.commit()
         flash("Complaint deleted successfully.", "success")
     except Exception as e:
         db.rollback()
         flash("Failed to delete complaint.", "danger")
     finally:
-        cur2.close()
         cur.close()
         db.close()
 
@@ -1176,10 +1069,29 @@ def smartvillage_debug():
 
 @app.route("/api/health", methods=["GET"])
 def api_health():
-    return jsonify({
-        "status": "ok",
-        "message": "Smart Village Backend is running"
-    }), 200
+    db_status = "disconnected"
+    db_type = DB_TYPE
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        cur.close()
+        db.close()
+        return jsonify({
+            "status": "ok",
+            "database": "connected",
+            "db_type": db_type,
+            "message": "Smart Village Backend and Database operational"
+        }), 200
+    except Exception as e:
+        logger.error(f"[HEALTH CHECK DB ERROR] Health check database ping failed: {e}")
+        return jsonify({
+            "status": "error",
+            "database": "disconnected",
+            "db_type": db_type,
+            "message": "Central database is temporarily unavailable"
+        }), 503
 
 @app.route("/api/debug/routes", methods=["GET"])
 def debug_routes():
@@ -1256,11 +1168,9 @@ def api_register():
     if not name or not email or not password:
         return jsonify({"success": False, "message": "Name, email and password are required."}), 400
 
-    cur = None
-    db = None
+    db = get_db()
+    cur = db.cursor()
     try:
-        db = get_db()
-        cur = db.cursor()
         cur.execute(
             "INSERT INTO users (name,email,phone,password) VALUES (%s,%s,%s,%s)",
             (name, email, phone, generate_password_hash(password))
@@ -1268,78 +1178,38 @@ def api_register():
         db.commit()
         return jsonify({"success": True, "message": "Registration successful. Please login."})
     except Exception as e:
-        if db:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-        return jsonify({"success": False, "message": f"Email already registered or database error: {e}"}), 400
+        db.rollback()
+        return jsonify({"success": False, "message": "Email already registered or database error."}), 400
     finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+        cur.close(); db.close()
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
     data = request.get_json(silent=True) or request.form
-    email_or_phone = data.get("email", "").strip().lower()
+    email = data.get("email", "").strip().lower()
     password = data.get("password", "")
 
-    if not email_or_phone or not password:
-        return jsonify({"success": False, "message": "Email/phone and password required."}), 400
+    if not email or not password:
+        return jsonify({"success": False, "message": "Email and password required."}), 400
 
-    cur = None
-    db = None
-    try:
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("SELECT * FROM users WHERE email=%s OR phone=%s", (email_or_phone, email_or_phone))
-        user = cur.fetchone()
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM users WHERE email=%s", (email,))
+    user = cur.fetchone()
+    cur.close(); db.close()
 
-        if user and safe_verify_password(user["password"], password):
-            # Auto-upgrade plain text password
-            if user["password"] == password:
-                try:
-                    new_hash = generate_password_hash(password)
-                    cur2 = db.cursor()
-                    cur2.execute("UPDATE users SET password=%s WHERE id=%s", (new_hash, user["id"]))
-                    db.commit()
-                    cur2.close()
-                except Exception:
-                    pass
-
-            return jsonify({
-                "success": True,
-                "message": "Login successful.",
-                "user": {
-                    "id": user["id"],
-                    "name": user["name"],
-                    "email": user["email"],
-                    "phone": user.get("phone", "")
-                }
-            })
-        return jsonify({"success": False, "message": "Invalid email/phone or password."}), 401
-    except Exception as e:
-        logger.error(f"[API CITIZEN LOGIN ERROR] {e}")
-        return jsonify({"success": False, "message": f"Server database error: {e}"}), 500
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+    if user and check_password_hash(user["password"], password):
+        return jsonify({
+            "success": True,
+            "message": "Login successful.",
+            "user": {
+                "id": user["id"],
+                "name": user["name"],
+                "email": user["email"],
+                "phone": user.get("phone", "")
+            }
+        })
+    return jsonify({"success": False, "message": "Invalid email or password."}), 401
 
 @app.route("/api/admin/login", methods=["POST"])
 def api_admin_login():
@@ -1347,70 +1217,38 @@ def api_admin_login():
     email = data.get("email", "").strip().lower()
     password = data.get("password", "")
 
-    cur = None
-    db = None
-    try:
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("SELECT * FROM admins WHERE email=%s", (email,))
-        admin = cur.fetchone()
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM admins WHERE email=%s", (email,))
+    admin = cur.fetchone()
+    cur.close(); db.close()
 
-        if admin and (password == admin["password"] or check_password_hash(admin["password"], password)):
-            return jsonify({
-                "success": True,
-                "message": "Admin login successful.",
-                "admin": {
-                    "id": admin["id"],
-                    "name": admin["name"],
-                    "email": admin["email"]
-                }
-            })
-        return jsonify({"success": False, "message": "Invalid admin credentials."}), 401
-    except Exception as e:
-        logger.error(f"[API ADMIN LOGIN ERROR] {e}")
-        return jsonify({"success": False, "message": f"Server database error: {e}"}), 500
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+    if admin and (password == admin["password"] or check_password_hash(admin["password"], password)):
+        return jsonify({
+            "success": True,
+            "message": "Admin login successful.",
+            "admin": {
+                "id": admin["id"],
+                "name": admin["name"],
+                "email": admin["email"]
+            }
+        })
+    return jsonify({"success": False, "message": "Invalid admin credentials."}), 401
 
 @app.route("/api/dashboard/<int:user_id>", methods=["GET"])
 def api_dashboard(user_id):
-    cur = None
-    db = None
-    try:
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("""
-            SELECT c.*, cat.name AS category_name
-            FROM complaints c
-            JOIN categories cat ON c.category_id = cat.id
-            WHERE c.user_id=%s
-            ORDER BY c.created_at DESC
-        """, (user_id,))
-        complaints = cur.fetchall()
-        return jsonify({"success": True, "complaints": complaints})
-    except Exception as e:
-        logger.error(f"[API DASHBOARD ERROR] {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT c.*, cat.name AS category_name
+        FROM complaints c
+        JOIN categories cat ON c.category_id = cat.id
+        WHERE c.user_id=%s
+        ORDER BY c.created_at DESC
+    """, (user_id,))
+    complaints = cur.fetchall()
+    cur.close(); db.close()
+    return jsonify({"success": True, "complaints": complaints})
 
 @app.route("/api/submit-complaint", methods=["POST"])
 def api_submit_complaint():
@@ -1432,11 +1270,9 @@ def api_submit_complaint():
 
     complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
-    cur = None
-    db = None
+    db = get_db()
+    cur = db.cursor()
     try:
-        db = get_db()
-        cur = db.cursor()
         logger.info(f"[API COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{user_id}' into central database...")
         cur.execute("""
             INSERT INTO complaints
@@ -1447,56 +1283,28 @@ def api_submit_complaint():
         logger.info(f"[API COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to central database.")
         return jsonify({"success": True, "message": "Complaint submitted successfully.", "complaint_id": complaint_id})
     except Exception as e:
-        if db:
-            try:
-                db.rollback()
-            except Exception:
-                pass
+        db.rollback()
         logger.error(f"[API COMPLAINT INSERT FAILURE] Failed to insert complaint '{complaint_id}': {e}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+        cur.close(); db.close()
 
 @app.route("/api/admin/complaints", methods=["GET"])
 def api_admin_complaints():
-    cur = None
-    db = None
-    try:
-        db = get_db()
-        cur = db.cursor(dictionary=True)
-        cur.execute("""
-            SELECT c.*, u.name AS citizen_name, u.email AS citizen_email, u.phone AS citizen_phone, cat.name AS category_name
-            FROM complaints c
-            JOIN users u ON c.user_id = u.id
-            JOIN categories cat ON c.category_id = cat.id
-            ORDER BY c.created_at DESC
-        """)
-        complaints = cur.fetchall()
-        logger.info(f"[API ADMIN QUERY RESULT] Admin API queried central database. Total complaints returned: {len(complaints)}")
-        return jsonify({"success": True, "complaints": complaints})
-    except Exception as e:
-        logger.error(f"[API ADMIN COMPLAINTS ERROR] {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("""
+        SELECT c.*, u.name AS citizen_name, u.email AS citizen_email, u.phone AS citizen_phone, cat.name AS category_name
+        FROM complaints c
+        JOIN users u ON c.user_id = u.id
+        JOIN categories cat ON c.category_id = cat.id
+        ORDER BY c.created_at DESC
+    """)
+    complaints = cur.fetchall()
+    cur.close(); db.close()
+
+    logger.info(f"[API ADMIN QUERY RESULT] Admin API queried central database. Total complaints returned: {len(complaints)}")
+    return jsonify({"success": True, "complaints": complaints})
 
 @app.route("/api/admin/update-status/<int:complaint_id>", methods=["POST"])
 def api_admin_update_status(complaint_id):
@@ -1505,40 +1313,23 @@ def api_admin_update_status(complaint_id):
     if not new_status:
         return jsonify({"success": False, "message": "Status is required."}), 400
 
-    cur = None
-    db = None
+    db = get_db()
+    cur = db.cursor()
     try:
-        db = get_db()
-        cur = db.cursor()
         cur.execute("UPDATE complaints SET status=%s, updated_at=CURRENT_TIMESTAMP WHERE id=%s", (new_status, complaint_id))
         db.commit()
         return jsonify({"success": True, "message": "Status updated successfully."})
     except Exception as e:
-        if db:
-            try:
-                db.rollback()
-            except Exception:
-                pass
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+        cur.close(); db.close()
 
 @app.route("/api/admin/delete-complaint/<int:complaint_id>", methods=["POST", "DELETE"])
 def api_admin_delete_complaint(complaint_id):
-    cur = None
-    db = None
+    db = get_db()
+    cur = db.cursor()
     try:
-        db = get_db()
-        cur = db.cursor()
         logger.info(f"[ADMIN DELETE] Admin requesting deletion of complaint ID: {complaint_id}")
         cur.execute("DELETE FROM feedback WHERE complaint_id=%s", (complaint_id,))
         cur.execute("DELETE FROM complaints WHERE id=%s", (complaint_id,))
@@ -1546,35 +1337,20 @@ def api_admin_delete_complaint(complaint_id):
         logger.info(f"[ADMIN DELETE SUCCESS] Complaint ID {complaint_id} and associated feedback deleted.")
         return jsonify({"success": True, "message": "Complaint deleted successfully."})
     except Exception as e:
-        if db:
-            try:
-                db.rollback()
-            except Exception:
-                pass
+        db.rollback()
         logger.error(f"[ADMIN DELETE FAILURE] Failed to delete complaint ID {complaint_id}: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+        cur.close(); db.close()
 
 @app.route("/api/delete-complaint/<int:complaint_id>", methods=["POST", "DELETE"])
 def api_delete_complaint(complaint_id):
     data = request.get_json(silent=True) or request.form
     user_id = data.get("user_id")
 
-    cur = None
-    db = None
+    db = get_db()
+    cur = db.cursor()
     try:
-        db = get_db()
-        cur = db.cursor()
         if user_id:
             cur.execute("DELETE FROM complaints WHERE id=%s AND user_id=%s", (complaint_id, user_id))
         else:
@@ -1582,23 +1358,10 @@ def api_delete_complaint(complaint_id):
         db.commit()
         return jsonify({"success": True, "message": "Complaint deleted successfully."})
     except Exception as e:
-        if db:
-            try:
-                db.rollback()
-            except Exception:
-                pass
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
-        if cur:
-            try:
-                cur.close()
-            except Exception:
-                pass
-        if db:
-            try:
-                db.close()
-            except Exception:
-                pass
+        cur.close(); db.close()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
