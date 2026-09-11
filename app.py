@@ -1069,8 +1069,14 @@ def smartvillage_debug():
 
 @app.route("/api/health", methods=["GET"])
 def api_health():
-    db_status = "disconnected"
-    db_type = DB_TYPE
+    is_render = (
+        os.environ.get("RENDER") is not None
+        or os.environ.get("RENDER_SERVICE_ID") is not None
+        or os.environ.get("FLASK_ENV") == "production"
+        or os.environ.get("ENV") == "production"
+        or os.environ.get("REQUIRE_CENTRAL_DB", "false").lower() in ("true", "1")
+    )
+    db_type = "mysql" if is_render else DB_TYPE
     try:
         db = get_db()
         cur = db.cursor()
