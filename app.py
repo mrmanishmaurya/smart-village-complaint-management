@@ -626,18 +626,20 @@ def index():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        name = request.form["name"].strip()
-        email = request.form["email"].strip().lower()
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
         phone = request.form.get("phone", "").strip()
-        password = request.form["password"]
+        password = request.form.get("password", "")
 
         if not name or not email or not password:
             flash("Please fill all required fields.", "danger")
             return redirect(url_for("register"))
 
-        db = get_db()
-        cur = db.cursor()
+        cur = None
+        db = None
         try:
+            db = get_db()
+            cur = db.cursor()
             cur.execute(
                 "INSERT INTO users (name,email,phone,password) VALUES (%s,%s,%s,%s)",
                 (name, email, phone, generate_password_hash(password))
@@ -646,11 +648,25 @@ def register():
             flash("Registration successful. Please login.", "success")
             return redirect(url_for("login"))
         except Exception as e:
-            db.rollback()
+            if db:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            logger.error(f"[REGISTER ERROR] Registration error for {email}: {e}")
             flash("Email already registered or registration error.", "danger")
+            return redirect(url_for("register"))
         finally:
-            cur.close()
-            db.close()
+            if cur:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if db:
+                try:
+                    db.close()
+                except Exception:
+                    pass
     return render_template("register.html")
 
 @app.route("/login", methods=["GET", "POST"])
