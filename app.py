@@ -1069,14 +1069,6 @@ def smartvillage_debug():
 
 @app.route("/api/health", methods=["GET"])
 def api_health():
-    is_render = (
-        os.environ.get("RENDER") is not None
-        or os.environ.get("RENDER_SERVICE_ID") is not None
-        or os.environ.get("FLASK_ENV") == "production"
-        or os.environ.get("ENV") == "production"
-        or os.environ.get("REQUIRE_CENTRAL_DB", "false").lower() in ("true", "1")
-    )
-    db_type = "mysql" if is_render else DB_TYPE
     try:
         db = get_db()
         cur = db.cursor()
@@ -1086,17 +1078,13 @@ def api_health():
         db.close()
         return jsonify({
             "status": "ok",
-            "database": "connected",
-            "db_type": db_type,
-            "message": "Smart Village Backend and Database operational"
+            "database": "connected"
         }), 200
     except Exception as e:
         logger.error(f"[HEALTH CHECK DB ERROR] Health check database ping failed: {e}")
         return jsonify({
             "status": "error",
-            "database": "disconnected",
-            "db_type": db_type,
-            "message": "Central database is temporarily unavailable"
+            "database": "disconnected"
         }), 503
 
 @app.route("/api/debug/routes", methods=["GET"])
