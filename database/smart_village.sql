@@ -52,4 +52,4 @@ INSERT IGNORE INTO categories (name) VALUES
 ('Drainage Issue'), ('Electricity'), ('Garbage'), ('Other');
 
 INSERT IGNORE INTO admins (name, email, password)
-VALUES ('Village Admin', 'admin@smartvillage.com', 'admin');
+VALUES ('Village Admin', 'admin-manish@smartvillage.com', 'admin');

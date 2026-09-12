@@ -425,7 +425,7 @@ def init_db():
 
             admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
             hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
-            admin_emails = ["manishmaurya9934@gmail.com", "admin@smartvillage.com"]
+            admin_emails = ["manishmaurya9934@gmail.com", "admin-manish@smartvillage.com"]
             for a_email in admin_emails:
                 cur.execute("SELECT id FROM admins WHERE email = ?", (a_email,))
                 if not cur.fetchone():
@@ -516,7 +516,7 @@ def init_db():
             try:
                 admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
                 hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
-                admin_emails = ["manishmaurya9934@gmail.com", "admin@smartvillage.com"]
+                admin_emails = ["manishmaurya9934@gmail.com", "admin-manish@smartvillage.com"]
                 for a_email in admin_emails:
                     cur.execute("SELECT id FROM admins WHERE email = %s", (a_email,))
                     existing_admin = cur.fetchone()

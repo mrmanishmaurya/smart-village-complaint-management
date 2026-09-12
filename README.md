@@ -26,7 +26,7 @@
    `http://127.0.0.1:5000`
 
 ## Admin Demo Login
-Email: admin@smartvillage.com
+Email: admin-manish@smartvillage.com
 Password: admin123
 
 ## Citizen
