@@ -20,6 +20,27 @@
         </div>
     </div>
 
+    {% if complaint.strict_action_required == 1 %}
+    <div class="alert alert-danger border-2 border-danger shadow-sm rounded-4 p-3 mb-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h5 class="fw-bold text-danger m-0">⚠️ STRICT ACTION REQUIRED – REPEATED COMPLAINT</h5>
+            <span class="badge bg-danger rounded-pill px-3 py-1">PRIORITY ESCALATED</span>
+        </div>
+        <p class="mb-2 text-dark small">
+            Your previous complaint (ID: <strong>{{ complaint.previous_complaint_id or 'Previous' }}</strong>) about this problem at this location was not resolved. 
+            This complaint has been automatically escalated to administrative authorities for strict action.
+        </p>
+        <div class="p-2 bg-white rounded border border-danger small text-center text-dark">
+            <strong class="d-block mb-1">Complaint History Flow:</strong>
+            <span class="badge bg-secondary p-2">{{ complaint.previous_complaint_id or 'Previous Complaint' }}</span> 
+            <span class="badge bg-light text-dark border">Status: {{ complaint.prev_status or 'Ignored' }}</span>
+            <span class="fs-5 mx-2 text-danger">➔</span>
+            <span class="badge bg-danger p-2">{{ complaint.complaint_id }}</span> 
+            <span class="badge bg-danger text-white">STRICT ACTION REQUIRED</span>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- RESOLUTION WORKFLOW TIMELINE -->
     <div class="card bg-light border-0 rounded-3 mb-4 p-3">
         <h5 class="fw-bold text-success mb-3">📍 Complaint Progress Timeline</h5>
@@ -61,7 +82,13 @@
                 <h5 class="fw-bold text-primary mb-3">📝 Complaint Information</h5>
                 <p><strong>Citizen Name:</strong> {{ complaint.user_name }}</p>
                 <p><strong>Category:</strong> {{ complaint.category_name }}</p>
-                <p><strong>Location:</strong> {{ complaint.location or 'Not provided' }}</p>
+                <p><strong>Privacy Setting:</strong> 
+                    {% if complaint.show_name_to_admin != 0 %}
+                    <span class="badge bg-info text-dark">Show Name to Admin = ON</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Show Name to Admin = OFF (Hidden)</span>
+                    {% endif %}
+                </p>
                 <p><strong>Submitted Date:</strong> {{ complaint.created_at }}</p>
                 <p class="mb-1"><strong>Description:</strong></p>
                 <div class="p-3 bg-white rounded border text-secondary">
@@ -86,6 +113,65 @@
             </div>
         </div>
     </div>
+
+    <!-- PROBLEM LOCATION SECTION (GOOGLE MAP) -->
+    <div class="card border-primary border-1 shadow-sm rounded-4 mb-4 bg-light">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h4 class="fw-bold text-primary m-0">📍 Selected Problem Location</h4>
+                {% if complaint.latitude and complaint.longitude %}
+                <a href="https://www.google.com/maps?q={{ complaint.latitude }},{{ complaint.longitude }}" target="_blank" class="btn btn-primary btn-sm fw-bold rounded-pill px-3">
+                    🗺️ Open in Google Maps
+                </a>
+                {% elif complaint.location_address or complaint.location %}
+                <a href="https://www.google.com/maps?q={{ (complaint.location_address or complaint.location)|urlencode }}" target="_blank" class="btn btn-primary btn-sm fw-bold rounded-pill px-3">
+                    🗺️ Open in Google Maps
+                </a>
+                {% endif %}
+            </div>
+
+            <div class="row g-3 align-items-center">
+                <div class="col-md-7">
+                    <div id="detailMapContainer" style="height: 250px; width: 100%; z-index: 1;" class="rounded border shadow-sm"></div>
+                </div>
+                <div class="col-md-5">
+                    <div class="p-3 bg-white rounded border">
+                        <p class="mb-2"><strong>Location Address:</strong><br>
+                            <span class="text-dark fw-medium">{{ complaint.location_address or complaint.location or 'Not provided' }}</span>
+                        </p>
+                        <p class="mb-1"><strong>Latitude:</strong> {{ complaint.latitude or 'N/A' }}</p>
+                        <p class="mb-3"><strong>Longitude:</strong> {{ complaint.longitude or 'N/A' }}</p>
+                        {% if complaint.latitude and complaint.longitude %}
+                        <a href="https://www.google.com/maps?q={{ complaint.latitude }},{{ complaint.longitude }}" target="_blank" class="btn btn-outline-primary btn-sm w-100 fw-bold">
+                            View Exact Location on Google Maps ➔
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const lat = parseFloat("{{ complaint.latitude }}");
+        const lng = parseFloat("{{ complaint.longitude }}");
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+            if (typeof google !== 'undefined' && google.maps) {
+                const pos = { lat: lat, lng: lng };
+                const map = new google.maps.Map(document.getElementById('detailMapContainer'), { center: pos, zoom: 15 });
+                new google.maps.Marker({ position: pos, map: map, title: "Complaint Location" });
+            } else if (typeof L !== 'undefined') {
+                const map = L.map('detailMapContainer').setView([lat, lng], 15);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                L.marker([lat, lng]).addTo(map).bindPopup("<b>Complaint Location</b><br>" + "{{ complaint.location_address or complaint.location or '' }}").openPopup();
+            }
+        } else {
+            document.getElementById('detailMapContainer').innerHTML = "<div class='d-flex align-items-center justify-content-center h-100 text-muted p-4 text-center'>📍 Address provided as text: {{ complaint.location_address or complaint.location or 'No location coordinates provided' }}</div>";
+        }
+    });
+    </script>
 
     <!-- RESOLUTION PROOF SECTION -->
     {% if complaint.resolution_photo or complaint.status in ['Resolved', 'Closed', 'Reopened'] %}

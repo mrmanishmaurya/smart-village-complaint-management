@@ -169,7 +169,7 @@ def get_categories_cached():
     try:
         db = get_db()
         cur = db.cursor(dictionary=True)
-        cur.execute("SELECT * FROM categories ORDER BY name ASC")
+        cur.execute("SELECT * FROM categories WHERE id != 999 AND name NOT LIKE '%999%' AND LOWER(name) NOT LIKE '%test category%' ORDER BY name ASC")
         categories = cur.fetchall()
         cur.close(); db.close()
         _categories_cache = categories
@@ -387,6 +387,33 @@ def get_db():
     return SQLiteConnectionAdapter(conn)
 
 
+@app.context_processor
+def inject_google_maps_api_key():
+    return {
+        "GOOGLE_MAPS_API_KEY": os.environ.get("GOOGLE_MAPS_API_KEY", "")
+    }
+
+def get_citizen_id(user):
+    if not user:
+        return "CV-00000"
+    if isinstance(user, dict):
+        cid = user.get("citizen_id")
+        if cid and str(cid).strip():
+            return str(cid).strip()
+        uid = user.get("id") or 0
+        return f"CV-{10000 + int(uid)}"
+    try:
+        if hasattr(user, "keys") and "citizen_id" in user.keys() and user["citizen_id"]:
+            return str(user["citizen_id"]).strip()
+        if hasattr(user, "keys") and "id" in user.keys():
+            return f"CV-{10000 + int(user['id'])}"
+    except Exception:
+        pass
+    uid = getattr(user, "id", 0)
+    return f"CV-{10000 + int(uid)}"
+
+
+
 def init_db():
     try:
         db = get_db()
@@ -396,6 +423,7 @@ def init_db():
             cur.executescript("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    citizen_id TEXT UNIQUE,
                     name TEXT NOT NULL,
                     email TEXT UNIQUE NOT NULL,
                     phone TEXT,
@@ -440,24 +468,41 @@ def init_db():
                     FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE
                 );
 
+
+
                 INSERT OR IGNORE INTO categories (name) VALUES
                 ('Water Problem'), ('Road Issue'), ('Street Light'),
                 ('Drainage Issue'), ('Electricity'), ('Garbage'), ('Other');
             """)
-            sqlite_indexes = [
-                "CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)",
-                "CREATE INDEX IF NOT EXISTS idx_complaints_user_id ON complaints(user_id)",
-                "CREATE INDEX IF NOT EXISTS idx_complaints_category_id ON complaints(category_id)",
-                "CREATE INDEX IF NOT EXISTS idx_complaints_status ON complaints(status)",
-                "CREATE INDEX IF NOT EXISTS idx_complaints_created_at ON complaints(created_at)",
-                "CREATE INDEX IF NOT EXISTS idx_feedback_complaint_id ON feedback(complaint_id)"
-            ]
+
+            # Add citizen_id to users if missing
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN citizen_id TEXT")
+            except Exception:
+                pass
+
+            # Backfill missing citizen_ids
+            cur.execute("SELECT id FROM users WHERE citizen_id IS NULL OR citizen_id = ''")
+            missing_users = cur.fetchall()
+            for u in missing_users:
+                cid = f"CV-{10000 + u['id']}"
+                cur.execute("UPDATE users SET citizen_id = ? WHERE id = ?", (cid, u['id']))
+
             sqlite_cols = [
                 ("resolution_photo", "TEXT"),
                 ("resolution_message", "TEXT"),
                 ("resolved_at", "DATETIME"),
                 ("citizen_approval", "TEXT DEFAULT 'Pending'"),
-                ("citizen_approved_at", "DATETIME")
+                ("citizen_approved_at", "DATETIME"),
+                ("show_name_to_admin", "INTEGER DEFAULT 1"),
+                ("latitude", "REAL"),
+                ("longitude", "REAL"),
+                ("location_address", "TEXT"),
+                ("is_repeated_complaint", "INTEGER DEFAULT 0"),
+                ("strict_action_required", "INTEGER DEFAULT 0"),
+                ("previous_complaint_id", "TEXT"),
+                ("duplicate_match_reason", "TEXT"),
+                ("duplicate_detected_at", "DATETIME")
             ]
             for col_name, col_type in sqlite_cols:
                 try:
@@ -489,6 +534,7 @@ def init_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INT AUTO_INCREMENT PRIMARY KEY,
+                    citizen_id VARCHAR(40) UNIQUE,
                     name VARCHAR(100) NOT NULL,
                     email VARCHAR(120) UNIQUE NOT NULL,
                     phone VARCHAR(15),
@@ -537,20 +583,39 @@ def init_db():
                     FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE
                 )
             """)
-            mysql_indexes = [
-                "CREATE INDEX idx_users_phone ON users(phone)",
-                "CREATE INDEX idx_complaints_user_id ON complaints(user_id)",
-                "CREATE INDEX idx_complaints_category_id ON complaints(category_id)",
-                "CREATE INDEX idx_complaints_status ON complaints(status)",
-                "CREATE INDEX idx_complaints_created_at ON complaints(created_at)",
-                "CREATE INDEX idx_feedback_complaint_id ON feedback(complaint_id)"
-            ]
+
+
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN citizen_id VARCHAR(40) NULL")
+            except Exception:
+                pass
+
+            # Backfill missing citizen_ids
+            try:
+                cur.execute("SELECT id FROM users WHERE citizen_id IS NULL OR citizen_id = ''")
+                missing_users = cur.fetchall()
+                for u in missing_users:
+                    uid = u['id'] if isinstance(u, dict) else u[0]
+                    cid = f"CV-{10000 + uid}"
+                    cur.execute("UPDATE users SET citizen_id = %s WHERE id = %s", (cid, uid))
+            except Exception as ex:
+                logger.warning(f"[CITIZEN ID BACKFILL NOTICE] {ex}")
+
             mysql_cols = [
                 ("resolution_photo", "VARCHAR(255) NULL"),
                 ("resolution_message", "TEXT NULL"),
                 ("resolved_at", "TIMESTAMP NULL"),
                 ("citizen_approval", "VARCHAR(50) DEFAULT 'Pending'"),
-                ("citizen_approved_at", "TIMESTAMP NULL")
+                ("citizen_approved_at", "TIMESTAMP NULL"),
+                ("show_name_to_admin", "INT DEFAULT 1"),
+                ("latitude", "DOUBLE NULL"),
+                ("longitude", "DOUBLE NULL"),
+                ("location_address", "TEXT NULL"),
+                ("is_repeated_complaint", "INT DEFAULT 0"),
+                ("strict_action_required", "INT DEFAULT 0"),
+                ("previous_complaint_id", "VARCHAR(40) NULL"),
+                ("duplicate_match_reason", "TEXT NULL"),
+                ("duplicate_detected_at", "TIMESTAMP NULL")
             ]
             for col_name, col_type in mysql_cols:
                 try:
@@ -592,10 +657,116 @@ def init_db():
             cur.close()
             db.close()
     except Exception as e:
-        print(f"Database Initialization Notice: {e}")
+        logger.error(f"Database Initialization Notice: {e}")
 
 # Initialize DB tables on startup
 init_db()
+
+import math
+import re
+
+def haversine_distance_meters(lat1, lon1, lat2, lon2):
+    """
+    Calculate the great-circle distance between two GPS points in meters using the Haversine formula.
+    """
+    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+        return None
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+    except (ValueError, TypeError):
+        return None
+
+    R = 6371000.0  # Earth's radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = math.sin(delta_phi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0)**2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return R * c
+
+def is_same_location(lat1, lon1, addr1, lat2, lon2, addr2, radius_meters=150.0):
+    """
+    Determines if two complaints refer to the same physical location.
+    Prioritizes GPS Haversine distance tolerance (~150 meters).
+    Falls back to normalized location address comparison if GPS is unavailable.
+    """
+    dist = haversine_distance_meters(lat1, lon1, lat2, lon2)
+    if dist is not None:
+        if dist <= radius_meters:
+            return True, f"GPS distance match ({int(dist)}m <= {int(radius_meters)}m limit)"
+        else:
+            return False, f"GPS distance ({int(dist)}m > {int(radius_meters)}m limit)"
+
+    str1 = (addr1 or "").strip().lower()
+    str2 = (addr2 or "").strip().lower()
+    if not str1 or not str2:
+        return False, "Insufficient location data"
+
+    clean1 = ' '.join(re.sub(r'[^\w\s]', '', str1).split())
+    clean2 = ' '.join(re.sub(r'[^\w\s]', '', str2).split())
+
+    if clean1 and clean2 and clean1 == clean2:
+        return True, f"Address text match ('{str1}')"
+
+    return False, "Location address mismatch"
+
+def check_repeated_complaint(user_id, category_id, latitude, longitude, location_address, current_complaint_db_id=None):
+    """
+    Strict Repeated Complaint Detection Rule:
+    Flags a complaint if the same citizen (user_id) has a previous complaint with:
+    - Same Problem Category (category_id)
+    - Same Location (GPS within 150m or normalized text match)
+    - Previous complaint status is unresolved / ignored / rejected / pending approval.
+    """
+    if not user_id or not category_id:
+        return False, None, None
+
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT c.*, cat.name AS category_name
+            FROM complaints c
+            JOIN categories cat ON c.category_id = cat.id
+            WHERE c.user_id = %s AND c.category_id = %s
+        """
+        params = [user_id, category_id]
+        if current_complaint_db_id:
+            query += " AND c.id != %s"
+            params.append(current_complaint_db_id)
+        query += " ORDER BY c.created_at ASC"
+
+        cur.execute(query, tuple(params))
+        prev_complaints = cur.fetchall()
+
+        for prev in prev_complaints:
+            p_status = prev.get("status")
+            p_approval = prev.get("citizen_approval")
+
+            # Rule check: If previous complaint was Resolved/Closed AND Citizen Approved,
+            # then do NOT treat a later complaint as an unresolved repeat.
+            is_resolved_and_approved = (p_status == 'Closed' and p_approval == 'Approved') or (p_status == 'Resolved' and p_approval == 'Approved')
+            if is_resolved_and_approved:
+                continue
+
+            prev_lat = prev.get("latitude")
+            prev_lng = prev.get("longitude")
+            prev_addr = prev.get("location_address") or prev.get("location")
+
+            matched, reason = is_same_location(latitude, longitude, location_address, prev_lat, prev_lng, prev_addr)
+            if matched:
+                match_reason = f"Same Citizen + Same Category ({prev.get('category_name')}) + {reason}"
+                return True, prev, match_reason
+
+        return False, None, None
+    except Exception as e:
+        logger.error(f"[CHECK REPEATED COMPLAINT ERROR] {e}")
+        return False, None, None
+    finally:
+        cur.close()
+        db.close()
 
 @app.route('/uploads/<path:filename>', endpoint='uploaded_file')
 @app.route('/static/uploads/<path:filename>')
@@ -679,6 +850,13 @@ def register():
                 (name, email, phone, generate_password_hash(password))
             )
             db.commit()
+            new_id = getattr(cur, 'lastrowid', None)
+            if new_id:
+                cid = f"CV-{10000 + new_id}"
+                cur2 = db.cursor()
+                cur2.execute("UPDATE users SET citizen_id = %s WHERE id = %s", (cid, new_id))
+                db.commit()
+                cur2.close()
             flash("Registration successful. Please login.", "success")
             return redirect(url_for("login"))
         except Exception as e:
@@ -697,21 +875,23 @@ def login():
         password = request.form.get("password", "")
 
         if not email or not password:
-            flash("Please enter both email and password.", "danger")
+            flash("Please enter both email/phone and password.", "danger")
             return render_template("login.html")
 
         try:
             db = get_db()
             cur = db.cursor(dictionary=True)
-            cur.execute("SELECT * FROM users WHERE email=%s", (email,))
+            cur.execute("SELECT * FROM users WHERE email=%s OR phone=%s", (email, email))
             user = cur.fetchone()
             cur.close()
             db.close()
 
             if user and check_password_hash(user["password"], password):
+                cid = get_citizen_id(user)
                 session.clear()
                 session["user_id"] = user["id"]
                 session["user_name"] = user["name"]
+                session["citizen_id"] = cid
                 return redirect(url_for("dashboard"))
 
             flash("Invalid email or password.", "danger")
@@ -768,13 +948,16 @@ def dashboard():
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute("""
-        SELECT c.*, cat.name AS category_name
+        SELECT c.*, cat.name AS category_name, u.citizen_id AS user_citizen_id
         FROM complaints c
         JOIN categories cat ON c.category_id = cat.id
+        JOIN users u ON c.user_id = u.id
         WHERE c.user_id=%s
         ORDER BY c.created_at DESC
     """, (session["user_id"],))
     complaints = cur.fetchall()
+    for comp in complaints:
+        comp['citizen_id'] = comp.get('user_citizen_id') or f"CV-{10000 + comp['user_id']}"
     cur.close()
     db.close()
     return render_template("dashboard.html", complaints=complaints)
@@ -790,6 +973,25 @@ def submit_complaint():
         location = request.form.get("location", "").strip()
         photo = request.files.get("photo")
 
+        # Privacy toggle: show_name_to_admin (1=ON, 0=OFF)
+        show_name_raw = request.form.get("show_name_to_admin")
+        show_name_to_admin = 1 if show_name_raw in ("1", "on", "true", True) else 0
+
+        # Location details
+        latitude_str = request.form.get("latitude", "").strip()
+        longitude_str = request.form.get("longitude", "").strip()
+        location_address = request.form.get("location_address", "").strip() or location
+
+        try:
+            latitude = float(latitude_str) if latitude_str else None
+        except ValueError:
+            latitude = None
+
+        try:
+            longitude = float(longitude_str) if longitude_str else None
+        except ValueError:
+            longitude = None
+
         if not description:
             flash("Complaint description is required.", "danger")
             return redirect(url_for("submit_complaint"))
@@ -803,19 +1005,34 @@ def submit_complaint():
 
         complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
+        # Check for Strict Repeated Complaint Rule match
+        is_repeated, prev_comp, match_reason = check_repeated_complaint(
+            session["user_id"], category_id, latitude, longitude, location_address
+        )
+        is_repeated_val = 1 if is_repeated else 0
+        strict_action_val = 1 if is_repeated else 0
+        prev_cid_val = prev_comp["complaint_id"] if prev_comp else None
+        match_reason_val = match_reason if is_repeated else None
+        detected_at_val = datetime.now() if is_repeated else None
+
         db = get_db()
         cur = db.cursor()
         try:
-            logger.info(f"[COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{session['user_id']}' into database...")
+            logger.info(f"[COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{session['user_id']}' (Repeated: {is_repeated})...")
             cur.execute("""
                 INSERT INTO complaints
-                (complaint_id,user_id,category_id,description,location,photo)
-                VALUES (%s,%s,%s,%s,%s,%s)
+                (complaint_id,user_id,category_id,description,location,photo,show_name_to_admin,latitude,longitude,location_address,
+                 is_repeated_complaint,strict_action_required,previous_complaint_id,duplicate_match_reason,duplicate_detected_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (complaint_id, session["user_id"], category_id,
-                  description, location, filename))
+                  description, location, filename, show_name_to_admin, latitude, longitude, location_address,
+                  is_repeated_val, strict_action_val, prev_cid_val, match_reason_val, detected_at_val))
             db.commit()
-            logger.info(f"[COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to central database.")
-            flash(f"Complaint submitted successfully. ID: {complaint_id}", "success")
+            logger.info(f"[COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to database.")
+            if is_repeated:
+                flash(f"⚠️ STRICT ACTION REQUIRED - REPEATED COMPLAINT DETECTED! Your previous complaint ({prev_cid_val}) about this problem at this location was not resolved. This new complaint ({complaint_id}) has been marked for strict administrative action.", "warning")
+            else:
+                flash(f"Complaint submitted successfully. ID: {complaint_id}", "success")
             return redirect(url_for("dashboard"))
         except Exception as e:
             db.rollback()
@@ -834,7 +1051,7 @@ def complaint_detail(complaint_db_id):
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute("""
-        SELECT c.*, cat.name AS category_name, u.name AS user_name
+        SELECT c.*, cat.name AS category_name, u.name AS user_name, u.citizen_id AS user_citizen_id
         FROM complaints c
         JOIN categories cat ON c.category_id=cat.id
         JOIN users u ON c.user_id=u.id
@@ -845,6 +1062,19 @@ def complaint_detail(complaint_db_id):
     if not complaint:
         flash("Complaint not found.", "danger")
         return redirect(url_for("dashboard"))
+    
+    complaint['citizen_id'] = complaint.get('user_citizen_id') or f"CV-{10000 + complaint['user_id']}"
+    if complaint.get('previous_complaint_id'):
+        db2 = get_db()
+        cur2 = db2.cursor(dictionary=True)
+        cur2.execute("SELECT id, complaint_id, status, created_at FROM complaints WHERE complaint_id = %s", (complaint['previous_complaint_id'],))
+        prev_rec = cur2.fetchone()
+        cur2.close(); db2.close()
+        if prev_rec:
+            complaint['prev_db_id'] = prev_rec.get('id')
+            complaint['prev_status'] = prev_rec.get('status')
+            complaint['prev_created_at'] = prev_rec.get('created_at')
+
     return render_template("complaint_detail.html", complaint=complaint)
 
 @app.route("/edit-complaint/<int:complaint_db_id>", methods=["GET", "POST"])
@@ -870,6 +1100,23 @@ def edit_complaint(complaint_db_id):
         description = request.form["description"].strip()
         location = request.form.get("location", "").strip()
         photo = request.files.get("photo")
+
+        show_name_raw = request.form.get("show_name_to_admin")
+        show_name_to_admin = 1 if show_name_raw in ("1", "on", "true", True) else 0
+
+        latitude_str = request.form.get("latitude", "").strip()
+        longitude_str = request.form.get("longitude", "").strip()
+        location_address = request.form.get("location_address", "").strip() or location
+
+        try:
+            latitude = float(latitude_str) if latitude_str else None
+        except ValueError:
+            latitude = None
+
+        try:
+            longitude = float(longitude_str) if longitude_str else None
+        except ValueError:
+            longitude = None
 
         if not description:
             flash("Complaint description is required.", "danger")
@@ -898,9 +1145,12 @@ def edit_complaint(complaint_db_id):
         cur2 = db.cursor()
         cur2.execute("""
             UPDATE complaints
-            SET category_id=%s, description=%s, location=%s, photo=%s
+            SET category_id=%s, description=%s, location=%s, photo=%s,
+                show_name_to_admin=%s, latitude=%s, longitude=%s, location_address=%s
             WHERE id=%s AND user_id=%s
-        """, (category_id, description, location, filename, complaint_db_id, session["user_id"]))
+        """, (category_id, description, location, filename,
+              show_name_to_admin, latitude, longitude, location_address,
+              complaint_db_id, session["user_id"]))
         db.commit()
         cur2.close()
         cur.close(); db.close()
@@ -1024,7 +1274,8 @@ def admin_dashboard():
                 SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS st_progress,
                 SUM(CASE WHEN status = 'Resolved' THEN 1 ELSE 0 END) AS st_resolved,
                 SUM(CASE WHEN status = 'Reopened' THEN 1 ELSE 0 END) AS st_reopened,
-                SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS st_closed
+                SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS st_closed,
+                SUM(CASE WHEN strict_action_required = 1 THEN 1 ELSE 0 END) AS st_strict_action
             FROM complaints
         """)
         agg_row = cur.fetchone() or {}
@@ -1035,19 +1286,49 @@ def admin_dashboard():
             "In Progress": agg_row.get("st_progress") or 0,
             "Resolved": agg_row.get("st_resolved") or 0,
             "Reopened": agg_row.get("st_reopened") or 0,
-            "Closed": agg_row.get("st_closed") or 0
+            "Closed": agg_row.get("st_closed") or 0,
+            "Strict Action": agg_row.get("st_strict_action") or 0
         }
 
         cur.execute("""
-            SELECT c.id, c.complaint_id, c.description, c.location, c.photo, c.status, c.created_at,
-                   c.resolution_photo, c.resolution_message, c.resolved_at, c.citizen_approval, c.citizen_approved_at,
-                   u.name AS user_name, cat.name AS category_name
+            SELECT c.*, c.show_name_to_admin, c.latitude, c.longitude, c.location_address,
+                   u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.citizen_id AS u_citizen_id,
+                   cat.name AS category_name
             FROM complaints c
             JOIN users u ON c.user_id=u.id
             JOIN categories cat ON c.category_id=cat.id
-            ORDER BY c.created_at DESC
+            ORDER BY c.strict_action_required DESC, c.created_at DESC
         """)
         complaints = cur.fetchall()
+
+        # Strict Server-Side Privacy Filtering & Previous Complaint Enrichment
+        for comp in complaints:
+            comp['citizen_id'] = comp.get('u_citizen_id') or f"CV-{10000 + comp['user_id']}"
+            if comp.get('show_name_to_admin', 1) == 0:
+                comp['user_name'] = 'Hidden'
+                comp['citizen_name'] = 'Hidden'
+                comp['user_email'] = 'Hidden'
+                comp['citizen_email'] = 'Hidden'
+                comp['user_phone'] = 'Hidden'
+                comp['citizen_phone'] = 'Hidden'
+                comp['phone'] = 'Hidden'
+                comp['email'] = 'Hidden'
+            else:
+                comp['citizen_name'] = comp.get('user_name', '')
+                comp['citizen_email'] = comp.get('user_email', '')
+                comp['citizen_phone'] = comp.get('user_phone', '')
+
+            # Attach details of previous complaint if repeated
+            if comp.get('previous_complaint_id'):
+                cur2 = db.cursor(dictionary=True)
+                cur2.execute("SELECT id, complaint_id, status, created_at, citizen_approval FROM complaints WHERE complaint_id = %s", (comp['previous_complaint_id'],))
+                prev_rec = cur2.fetchone()
+                cur2.close()
+                if prev_rec:
+                    comp['prev_db_id'] = prev_rec.get('id')
+                    comp['prev_status'] = prev_rec.get('status')
+                    comp['prev_created_at'] = prev_rec.get('created_at')
+                    comp['prev_approval'] = prev_rec.get('citizen_approval')
 
         logger.info(f"[ADMIN QUERY RESULT] Admin Dashboard fetched complaints from central database. Total record count: {len(complaints)}")
 
@@ -1323,6 +1604,13 @@ def api_register():
             (name, email, phone, generate_password_hash(password))
         )
         db.commit()
+        new_id = getattr(cur, 'lastrowid', None)
+        if new_id:
+            cid = f"CV-{10000 + new_id}"
+            cur2 = db.cursor()
+            cur2.execute("UPDATE users SET citizen_id = %s WHERE id = %s", (cid, new_id))
+            db.commit()
+            cur2.close()
         return jsonify({"success": True, "message": "Registration successful. Please login."})
     except Exception as e:
         db.rollback()
@@ -1346,11 +1634,13 @@ def api_login():
     cur.close(); db.close()
 
     if user and check_password_hash(user["password"], password):
+        cid = get_citizen_id(user)
         return jsonify({
             "success": True,
             "message": "Login successful.",
             "user": {
                 "id": user["id"],
+                "citizen_id": cid,
                 "name": user["name"],
                 "email": user["email"],
                 "phone": user.get("phone", "")
@@ -1387,15 +1677,65 @@ def api_dashboard(user_id):
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute("""
-        SELECT c.*, cat.name AS category_name
+        SELECT c.*, cat.name AS category_name, u.citizen_id AS user_citizen_id
         FROM complaints c
         JOIN categories cat ON c.category_id = cat.id
+        JOIN users u ON c.user_id = u.id
         WHERE c.user_id=%s
         ORDER BY c.created_at DESC
     """, (user_id,))
     complaints = cur.fetchall()
+    for comp in complaints:
+        comp['citizen_id'] = comp.get('user_citizen_id') or f"CV-{10000 + comp['user_id']}"
     cur.close(); db.close()
     return jsonify({"success": True, "complaints": complaints})
+
+@app.route("/api/check-repeated-complaint", methods=["GET", "POST"])
+def api_check_repeated_complaint():
+    json_data = request.get_json(silent=True) or {}
+    user_id = request.form.get("user_id") or json_data.get("user_id") or request.args.get("user_id") or session.get("user_id")
+    category_id = request.form.get("category_id") or json_data.get("category_id") or request.args.get("category_id")
+    lat_val = request.form.get("latitude") or json_data.get("latitude") or request.args.get("latitude")
+    lng_val = request.form.get("longitude") or json_data.get("longitude") or request.args.get("longitude")
+    location_address = (request.form.get("location_address") or json_data.get("location_address") or request.args.get("location_address") or request.form.get("location") or json_data.get("location") or "").strip()
+
+    try:
+        latitude = float(lat_val) if lat_val is not None and str(lat_val).strip() != "" and str(lat_val) != "None" else None
+    except ValueError:
+        latitude = None
+
+    try:
+        longitude = float(lng_val) if lng_val is not None and str(lng_val).strip() != "" and str(lng_val) != "None" else None
+    except ValueError:
+        longitude = None
+
+    if not user_id or not category_id:
+        return jsonify({"success": True, "is_repeated": False}), 200
+
+    is_repeated, prev_comp, match_reason = check_repeated_complaint(
+        user_id, category_id, latitude, longitude, location_address
+    )
+
+    if is_repeated and prev_comp:
+        warning_msg = (
+            f"Your previous complaint ({prev_comp['complaint_id']}) about this problem at this location was not resolved "
+            f"(Status: {prev_comp.get('status', 'Ignored')}). This new complaint will be marked for STRICT ADMINISTRATIVE ACTION."
+        )
+        return jsonify({
+            "success": True,
+            "is_repeated": True,
+            "warning": warning_msg,
+            "previous_complaint": {
+                "complaint_id": prev_comp.get("complaint_id"),
+                "status": prev_comp.get("status"),
+                "created_at": str(prev_comp.get("created_at")),
+                "category_name": prev_comp.get("category_name"),
+                "location": prev_comp.get("location_address") or prev_comp.get("location")
+            },
+            "match_reason": match_reason
+        })
+
+    return jsonify({"success": True, "is_repeated": False})
 
 @app.route("/api/submit-complaint", methods=["POST"])
 def api_submit_complaint():
@@ -1405,6 +1745,23 @@ def api_submit_complaint():
     description = (request.form.get("description") or json_data.get("description", "")).strip()
     location = (request.form.get("location") or json_data.get("location", "")).strip()
     photo = request.files.get("photo")
+
+    show_name_raw = request.form.get("show_name_to_admin") if request.form else json_data.get("show_name_to_admin")
+    show_name_to_admin = 1 if show_name_raw in ("1", "on", "true", True, 1) else 0
+
+    lat_val = request.form.get("latitude") if request.form else json_data.get("latitude")
+    lng_val = request.form.get("longitude") if request.form else json_data.get("longitude")
+    location_address = (request.form.get("location_address") if request.form else json_data.get("location_address", "") or location).strip()
+
+    try:
+        latitude = float(lat_val) if lat_val is not None and str(lat_val).strip() != "" and str(lat_val) != "None" else None
+    except ValueError:
+        latitude = None
+
+    try:
+        longitude = float(lng_val) if lng_val is not None and str(lng_val).strip() != "" and str(lng_val) != "None" else None
+    except ValueError:
+        longitude = None
 
     if not user_id or not category_id or not description:
         return jsonify({"success": False, "message": "User ID, Category and Description are required."}), 400
@@ -1417,18 +1774,37 @@ def api_submit_complaint():
 
     complaint_id = "CID" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
 
+    # Check for Strict Repeated Complaint Rule match
+    is_repeated, prev_comp, match_reason = check_repeated_complaint(
+        user_id, category_id, latitude, longitude, location_address
+    )
+    is_repeated_val = 1 if is_repeated else 0
+    strict_action_val = 1 if is_repeated else 0
+    prev_cid_val = prev_comp["complaint_id"] if prev_comp else None
+    match_reason_val = match_reason if is_repeated else None
+    detected_at_val = datetime.now() if is_repeated else None
+
     db = get_db()
     cur = db.cursor()
     try:
-        logger.info(f"[API COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{user_id}' into central database...")
+        logger.info(f"[API COMPLAINT INSERT] Inserting complaint '{complaint_id}' for user_id '{user_id}' (Repeated: {is_repeated})...")
         cur.execute("""
             INSERT INTO complaints
-            (complaint_id,user_id,category_id,description,location,photo)
-            VALUES (%s,%s,%s,%s,%s,%s)
-        """, (complaint_id, user_id, category_id, description, location, filename))
+            (complaint_id,user_id,category_id,description,location,photo,show_name_to_admin,latitude,longitude,location_address,
+             is_repeated_complaint,strict_action_required,previous_complaint_id,duplicate_match_reason,duplicate_detected_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (complaint_id, user_id, category_id, description, location, filename, show_name_to_admin, latitude, longitude, location_address,
+              is_repeated_val, strict_action_val, prev_cid_val, match_reason_val, detected_at_val))
         db.commit()
         logger.info(f"[API COMPLAINT INSERT SUCCESS] Complaint '{complaint_id}' successfully COMMITTED to central database.")
-        return jsonify({"success": True, "message": "Complaint submitted successfully.", "complaint_id": complaint_id})
+        return jsonify({
+            "success": True,
+            "message": "Complaint submitted successfully." + (" (STRICT ACTION REQUIRED: Repeated Complaint)" if is_repeated else ""),
+            "complaint_id": complaint_id,
+            "is_repeated_complaint": bool(is_repeated),
+            "strict_action_required": bool(is_repeated),
+            "previous_complaint_id": prev_cid_val
+        })
     except Exception as e:
         db.rollback()
         logger.error(f"[API COMPLAINT INSERT FAILURE] Failed to insert complaint '{complaint_id}': {e}")
@@ -1441,7 +1817,9 @@ def api_admin_complaints():
     db = get_db()
     cur = db.cursor(dictionary=True)
     cur.execute("""
-        SELECT c.*, u.name AS citizen_name, u.email AS citizen_email, u.phone AS citizen_phone, cat.name AS category_name
+        SELECT c.*, c.show_name_to_admin, c.latitude, c.longitude, c.location_address,
+               u.name AS citizen_name, u.email AS citizen_email, u.phone AS citizen_phone, u.citizen_id AS u_citizen_id,
+               cat.name AS category_name
         FROM complaints c
         JOIN users u ON c.user_id = u.id
         JOIN categories cat ON c.category_id = cat.id
@@ -1449,6 +1827,16 @@ def api_admin_complaints():
     """)
     complaints = cur.fetchall()
     cur.close(); db.close()
+
+    for comp in complaints:
+        comp['citizen_id'] = comp.get('u_citizen_id') or f"CV-{10000 + comp['user_id']}"
+        if comp.get('show_name_to_admin', 1) == 0:
+            comp['citizen_name'] = 'Hidden'
+            comp['user_name'] = 'Hidden'
+            comp['citizen_email'] = 'Hidden'
+            comp['citizen_phone'] = 'Hidden'
+            comp['phone'] = 'Hidden'
+            comp['email'] = 'Hidden'
 
     logger.info(f"[API ADMIN QUERY RESULT] Admin API queried central database. Total complaints returned: {len(complaints)}")
     return jsonify({"success": True, "complaints": complaints})

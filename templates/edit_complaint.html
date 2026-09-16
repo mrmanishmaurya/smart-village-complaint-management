@@ -1,33 +1,198 @@
-{% extends "base.html" %}{% block content %}
-<div class="form-box wide">
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>Edit Complaint</h2>
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('dashboard') }}">← Back to Dashboard</a>
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="form-box wide shadow-lg border-0 rounded-4 p-4 mx-auto" style="max-width: 780px;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 pb-2 border-bottom">
+            <h2 class="fw-bold text-success m-0">✏️ Edit Complaint</h2>
+            <a class="btn btn-outline-secondary btn-sm rounded-pill fw-bold" href="{{ url_for('dashboard') }}">← Back to Dashboard</a>
+        </div>
+        <p class="text-secondary mb-4">Modify your complaint details, update problem location on Google Map, or change privacy settings.</p>
+
+        <form method="post" enctype="multipart/form-data">
+            <!-- 1. CATEGORY -->
+            <div class="mb-3">
+                <label class="form-label fw-bold">1. Problem Category <span class="text-danger">*</span></label>
+                <select class="form-select form-select-lg" name="category_id" required>
+                    {% for c in categories %}
+                    <option value="{{ c.id }}" {% if c.id == complaint.category_id %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 2. DESCRIPTION -->
+            <div class="mb-3">
+                <label class="form-label fw-bold">2. Problem Description <span class="text-danger">*</span></label>
+                <textarea class="form-control" name="description" rows="4" required>{{ complaint.description }}</textarea>
+            </div>
+
+            <!-- 3. PHOTO -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">3. Complaint Photo</label>
+                {% if complaint.photo %}
+                <div class="mb-2">
+                    <small class="text-muted d-block mb-1">Current Attached Image:</small>
+                    <img src="{{ url_for('uploaded_file', filename=complaint.photo) }}" style="max-height: 140px; border-radius: 8px;" class="border shadow-sm" alt="Complaint photo">
+                </div>
+                {% endif %}
+                <input class="form-control" type="file" name="photo" accept=".jpg,.jpeg,.png,.webp">
+                <small class="text-muted">Upload a new photo to replace current photo (Optional)</small>
+            </div>
+
+            <!-- 4. LOCATION (MAP) -->
+            <div class="card p-3 border-success border-1 bg-light rounded-3 mb-4">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <label class="form-label fw-bold text-success m-0 fs-6">📍 4. Problem Location (Google Map)</label>
+                    <button type="button" class="btn btn-sm btn-success rounded-pill fw-bold" onclick="locateUserCurrentPosition()">
+                        🎯 Use My Current Location
+                    </button>
+                </div>
+
+                <div class="input-group mb-2">
+                    <span class="input-group-text bg-white">🔍</span>
+                    <input type="text" id="mapSearchInput" class="form-control" placeholder="Search village, ward, street or landmark...">
+                    <button type="button" class="btn btn-outline-secondary fw-bold" onclick="searchLocationQuery()">Search</button>
+                </div>
+
+                <div id="mapContainer" style="height: 300px; width: 100%; z-index: 1;" class="rounded border shadow-sm mb-2"></div>
+
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Latitude:</label>
+                        <input type="text" id="latitudeInput" name="latitude" class="form-control form-control-sm bg-white" readonly value="{{ complaint.latitude or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Longitude:</label>
+                        <input type="text" id="longitudeInput" name="longitude" class="form-control form-control-sm bg-white" readonly value="{{ complaint.longitude or '' }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Address / Location Name:</label>
+                        <input type="text" id="locationAddressInput" name="location_address" class="form-control form-control-sm" value="{{ complaint.location_address or complaint.location or '' }}">
+                        <input type="hidden" name="location" id="locationFallbackInput" value="{{ complaint.location or '' }}">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. CITIZEN NAME PRIVACY OPTION -->
+            <div class="card p-3 border-0 bg-light rounded-3 mb-4">
+                <div class="form-check form-switch d-flex align-items-center gap-3">
+                    <input class="form-check-input" type="checkbox" role="switch" name="show_name_to_admin" id="showNameToggle" value="1" {% if complaint.show_name_to_admin != 0 %}checked{% endif %} style="width: 2.6em; height: 1.4em;">
+                    <div>
+                        <label class="form-check-label fw-bold text-dark fs-6" for="showNameToggle">
+                            Show my name to Admin
+                        </label>
+                        <small class="d-block mt-1 fw-bold {% if complaint.show_name_to_admin != 0 %}text-success{% else %}text-danger{% endif %}" id="privacyNoticeText">
+                            {% if complaint.show_name_to_admin != 0 %}
+                            YES (ON): Admin can see your name and contact details.
+                            {% else %}
+                            NO (OFF): Your name, email and mobile number will be HIDDEN from Admin.
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-success btn-lg flex-grow-1 fw-bold rounded-pill shadow-sm">Save Changes</button>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-lg rounded-pill px-4">Cancel</a>
+            </div>
+        </form>
+    </div>
 </div>
-<form method="post" enctype="multipart/form-data">
-<label class="form-label">Category</label>
-<select class="form-select mb-3" name="category_id" required>
-{% for c in categories %}
-<option value="{{ c.id }}" {% if c.id == complaint.category_id %}selected{% endif %}>{{ c.name }}</option>
-{% endfor %}
-</select>
-<label class="form-label">Description</label>
-<textarea class="form-control mb-3" name="description" rows="5" placeholder="Write your complaint..." required>{{ complaint.description }}</textarea>
-<label class="form-label">Location / Details</label>
-<input class="form-control mb-3" name="location" value="{{ complaint.location or '' }}" placeholder="Village, ward, landmark etc.">
-<label class="form-label">Photo</label>
-{% if complaint.photo %}
-<div class="mb-2">
-    <small class="text-muted d-block mb-1">Current Photo:</small>
-    <img src="{{ url_for('uploaded_file', filename=complaint.photo) }}" style="max-height: 150px; border-radius: 8px;" alt="Complaint photo">
-</div>
-{% endif %}
-<small class="text-muted d-block mb-1">Upload new photo to replace current photo (Optional):</small>
-<input class="form-control mb-3" type="file" name="photo" accept=".jpg,.jpeg,.png,.webp">
-<div class="d-flex gap-2">
-    <button type="submit" class="btn btn-success flex-grow-1">Update Complaint</button>
-    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
-</div>
-</form>
-</div>
+
+<script>
+let currentLat = parseFloat("{{ complaint.latitude }}") || 25.5941;
+let currentLng = parseFloat("{{ complaint.longitude }}") || 85.1376;
+let leafletMap = null;
+let leafletMarker = null;
+let googleMap = null;
+let googleMarker = null;
+
+document.addEventListener("DOMContentLoaded", function() {
+    initProblemMap();
+
+    const privacyToggle = document.getElementById('showNameToggle');
+    const noticeText = document.getElementById('privacyNoticeText');
+    privacyToggle.addEventListener('change', function() {
+        if (this.checked) {
+            noticeText.textContent = "YES (ON): Admin can see your name and contact details.";
+            noticeText.className = "d-block mt-1 fw-bold text-success";
+        } else {
+            noticeText.textContent = "NO (OFF): Your name, email and mobile number will be HIDDEN from Admin.";
+            noticeText.className = "d-block mt-1 fw-bold text-danger";
+        }
+    });
+});
+
+function initProblemMap() {
+    const latInput = document.getElementById('latitudeInput');
+    const lngInput = document.getElementById('longitudeInput');
+    const addressInput = document.getElementById('locationAddressInput');
+    const fallbackInput = document.getElementById('locationFallbackInput');
+
+    function updateCoords(lat, lng, address) {
+        currentLat = lat; currentLng = lng;
+        latInput.value = lat.toFixed(6);
+        lngInput.value = lng.toFixed(6);
+        if (address) { addressInput.value = address; fallbackInput.value = address; }
+    }
+
+    if (typeof google !== 'undefined' && google.maps) {
+        const defaultPos = { lat: currentLat, lng: currentLng };
+        googleMap = new google.maps.Map(document.getElementById('mapContainer'), { center: defaultPos, zoom: 15 });
+        googleMarker = new google.maps.Marker({ position: defaultPos, map: googleMap, draggable: true });
+        googleMarker.addListener('dragend', function(e) { reverseGeocode(e.latLng.lat(), e.latLng.lng()); });
+        googleMap.addListener('click', function(e) { googleMarker.setPosition(e.latLng); reverseGeocode(e.latLng.lat(), e.latLng.lng()); });
+        return;
+    }
+
+    if (typeof L !== 'undefined') {
+        leafletMap = L.map('mapContainer').setView([currentLat, currentLng], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(leafletMap);
+        leafletMarker = L.marker([currentLat, currentLng], { draggable: true }).addTo(leafletMap);
+        leafletMarker.on('dragend', function(e) { const pos = e.target.getLatLng(); reverseGeocode(pos.lat, pos.lng); });
+        leafletMap.on('click', function(e) { leafletMarker.setLatLng(e.latlng); reverseGeocode(e.latlng.lat, e.latlng.lng); });
+    }
+}
+
+function updateMapPosition(lat, lng, address) {
+    document.getElementById('latitudeInput').value = lat.toFixed(6);
+    document.getElementById('longitudeInput').value = lng.toFixed(6);
+    if (address) {
+        document.getElementById('locationAddressInput').value = address;
+        document.getElementById('locationFallbackInput').value = address;
+    }
+    if (googleMap && googleMarker) {
+        googleMap.setCenter({ lat: lat, lng: lng }); googleMarker.setPosition({ lat: lat, lng: lng });
+    } else if (leafletMap && leafletMarker) {
+        leafletMap.setView([lat, lng], 16); leafletMarker.setLatLng([lat, lng]);
+    }
+}
+
+function locateUserCurrentPosition() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            reverseGeocode(position.coords.latitude, position.coords.longitude);
+        }, function() { alert("Could not retrieve current location."); }, { enableHighAccuracy: true });
+    }
+}
+
+function searchLocationQuery() {
+    const query = document.getElementById('mapSearchInput').value.trim();
+    if (!query) return;
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+        .then(res => res.json()).then(data => {
+            if (data && data.length > 0) { updateMapPosition(parseFloat(data[0].lat), parseFloat(data[0].lon), data[0].display_name); }
+            else { alert("Location not found."); }
+        });
+}
+
+function reverseGeocode(lat, lng) {
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+        .then(res => res.json()).then(data => {
+            const address = data && data.display_name ? data.display_name : `Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+            updateMapPosition(lat, lng, address);
+        }).catch(() => { updateMapPosition(lat, lng, `Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`); });
+}
+</script>
 {% endblock %}

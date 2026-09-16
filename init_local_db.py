@@ -111,12 +111,29 @@ def init_mysql():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
 
+        # Ensure citizen_id column exists on users table
+        try:
+            cur.execute("ALTER TABLE users ADD COLUMN citizen_id VARCHAR(40) NULL")
+        except Exception:
+            pass
+
+
+
         mysql_cols = [
             ("resolution_photo", "VARCHAR(255) NULL"),
             ("resolution_message", "TEXT NULL"),
             ("resolved_at", "TIMESTAMP NULL"),
             ("citizen_approval", "VARCHAR(50) DEFAULT 'Pending'"),
-            ("citizen_approved_at", "TIMESTAMP NULL")
+            ("citizen_approved_at", "TIMESTAMP NULL"),
+            ("show_name_to_admin", "INT DEFAULT 1"),
+            ("latitude", "DOUBLE NULL"),
+            ("longitude", "DOUBLE NULL"),
+            ("location_address", "TEXT NULL"),
+            ("is_repeated_complaint", "INT DEFAULT 0"),
+            ("strict_action_required", "INT DEFAULT 0"),
+            ("previous_complaint_id", "VARCHAR(40) NULL"),
+            ("duplicate_match_reason", "TEXT NULL"),
+            ("duplicate_detected_at", "TIMESTAMP NULL")
         ]
         for col_name, col_type in mysql_cols:
             try:
@@ -147,6 +164,8 @@ def init_mysql():
             ("idx_complaints_category_id", "CREATE INDEX idx_complaints_category_id ON complaints(category_id)"),
             ("idx_complaints_status", "CREATE INDEX idx_complaints_status ON complaints(status)"),
             ("idx_complaints_created_at", "CREATE INDEX idx_complaints_created_at ON complaints(created_at)"),
+            ("idx_complaints_strict_action", "CREATE INDEX idx_complaints_strict_action ON complaints(strict_action_required)"),
+            ("idx_complaints_user_cat", "CREATE INDEX idx_complaints_user_cat ON complaints(user_id, category_id)"),
             ("idx_feedback_complaint_id", "CREATE INDEX idx_feedback_complaint_id ON feedback(complaint_id)")
         ]
         for idx_name, idx_sql in mysql_indexes:

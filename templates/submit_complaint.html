@@ -1,18 +1,338 @@
-{% extends "base.html" %}{% block content %}
-<div class="form-box wide">
-<h2>Submit Complaint</h2>
-<form method="post" enctype="multipart/form-data">
-<label class="form-label">Category</label>
-<select class="form-select mb-3" name="category_id" required>
-{% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-</select>
-<label class="form-label">Description</label>
-<textarea class="form-control mb-3" name="description" rows="5" placeholder="Write your complaint..." required></textarea>
-<label class="form-label">Location / Details</label>
-<input class="form-control mb-3" name="location" placeholder="Village, ward, landmark etc.">
-<label class="form-label">Photo (Optional)</label>
-<input class="form-control mb-3" type="file" name="photo" accept=".jpg,.jpeg,.png,.webp">
-<button class="btn btn-success w-100">Submit Complaint</button>
-</form>
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="form-box wide shadow-lg border-0 rounded-4 p-4 mx-auto" style="max-width: 780px;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 pb-2 border-bottom">
+            <h2 class="fw-bold text-success m-0">📝 Submit Complaint</h2>
+        </div>
+        <p class="text-secondary mb-4">Report a problem in your village with exact location details and optional privacy controls.</p>
+
+        <form method="post" enctype="multipart/form-data">
+            <!-- 1. PROBLEM CATEGORY -->
+            <div class="mb-3">
+                <label class="form-label fw-bold">1. Problem Category <span class="text-danger">*</span></label>
+                <select class="form-select form-select-lg" name="category_id" required>
+                    <option value="">Select Category...</option>
+                    {% for c in categories %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 2. PROBLEM DESCRIPTION -->
+            <div class="mb-3">
+                <label class="form-label fw-bold">2. Problem Description <span class="text-danger">*</span></label>
+                <textarea class="form-control" name="description" rows="4" placeholder="Describe the issue in detail (e.g. broken road near main market, water pipeline leak)..." required></textarea>
+            </div>
+
+            <!-- 3. COMPLAINT PHOTO -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">3. Complaint Photo (Optional)</label>
+                <input class="form-control" type="file" name="photo" accept=".jpg,.jpeg,.png,.webp">
+                <small class="text-muted">Allowed formats: JPG, JPEG, PNG, WEBP (Max 10MB)</small>
+            </div>
+
+            <!-- 4. PROBLEM LOCATION -->
+            <div class="card p-3 border-success border-1 bg-light rounded-3 mb-4">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <label class="form-label fw-bold text-success m-0 fs-6">📍 4. Problem Location (Google Map)</label>
+                    <button type="button" class="btn btn-sm btn-success rounded-pill fw-bold" onclick="locateUserCurrentPosition()">
+                        🎯 Use My Current Location
+                    </button>
+                </div>
+                <small class="text-muted mb-2 d-block">Search location or drag marker to select the exact problem spot (even if away from home).</small>
+
+                <div class="input-group mb-2">
+                    <span class="input-group-text bg-white">🔍</span>
+                    <input type="text" id="mapSearchInput" class="form-control" placeholder="Search village, ward, street or landmark...">
+                    <button type="button" class="btn btn-outline-secondary fw-bold" onclick="searchLocationQuery()">Search</button>
+                </div>
+
+                <div id="mapContainer" style="height: 320px; width: 100%; z-index: 1;" class="rounded border shadow-sm mb-2"></div>
+
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Latitude:</label>
+                        <input type="text" id="latitudeInput" name="latitude" class="form-control form-control-sm bg-white" readonly placeholder="25.5941">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Longitude:</label>
+                        <input type="text" id="longitudeInput" name="longitude" class="form-control form-control-sm bg-white" readonly placeholder="85.1376">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold mb-1">Address / Location Name:</label>
+                        <input type="text" id="locationAddressInput" name="location_address" class="form-control form-control-sm" placeholder="Main Road, Ward 4">
+                        <input type="hidden" name="location" id="locationFallbackInput">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. CITIZEN NAME PRIVACY OPTION -->
+            <div class="card p-3 border-0 bg-light rounded-3 mb-4">
+                <div class="form-check form-switch d-flex align-items-center gap-3">
+                    <input class="form-check-input" type="checkbox" role="switch" name="show_name_to_admin" id="showNameToggle" value="1" checked style="width: 2.6em; height: 1.4em;">
+                    <div>
+                        <label class="form-check-label fw-bold text-dark fs-6" for="showNameToggle">
+                            Show my name to Admin
+                        </label>
+                        <small class="d-block mt-1 fw-bold text-success" id="privacyNoticeText">
+                            YES (ON): Admin can see your name and contact details.
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUBMIT BUTTON -->
+            <button type="submit" id="submitComplaintBtn" class="btn btn-success btn-lg w-100 fw-bold rounded-pill shadow-sm">
+                🚀 Submit Complaint
+            </button>
+        </form>
+    </div>
 </div>
+
+<!-- REPEATED COMPLAINT PRE-SUBMISSION WARNING MODAL -->
+<div class="modal fade" id="repeatedComplaintModal" tabindex="-1" aria-labelledby="repeatedComplaintModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-danger border-2 shadow-lg">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title fw-bold" id="repeatedComplaintModalLabel">⚠️ STRICT ACTION REQUIRED – REPEATED COMPLAINT</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning border-warning p-3 mb-3">
+          <h6 class="fw-bold text-dark mb-2">Repeated Complaint Detected!</h6>
+          <p id="repeatedWarningText" class="mb-0 small text-dark"></p>
+        </div>
+        <p class="small text-muted mb-0">
+          Your new complaint will automatically be marked for <strong>STRICT ADMINISTRATIVE ACTION</strong> and will sit at the very top of the Admin Panel list.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Go Back & Edit</button>
+        <button type="button" class="btn btn-danger fw-bold shadow-sm" onclick="forceSubmitForm()">Proceed & Submit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentLat = 25.5941;
+let currentLng = 85.1376;
+let leafletMap = null;
+let leafletMarker = null;
+let googleMap = null;
+let googleMarker = null;
+let isPreCheckDone = false;
+
+document.addEventListener("DOMContentLoaded", function() {
+    initProblemMap();
+
+    const privacyToggle = document.getElementById('showNameToggle');
+    const noticeText = document.getElementById('privacyNoticeText');
+    privacyToggle.addEventListener('change', function() {
+        if (this.checked) {
+            noticeText.textContent = "YES (ON): Admin can see your name and contact details.";
+            noticeText.className = "d-block mt-1 fw-bold text-success";
+        } else {
+            noticeText.textContent = "NO (OFF): Your name, email and mobile number will be HIDDEN from Admin.";
+            noticeText.className = "d-block mt-1 fw-bold text-danger";
+        }
+    });
+
+    // Handle form submit pre-check
+    const form = document.querySelector('form');
+    form.addEventListener('submit', function(e) {
+        if (isPreCheckDone) return true;
+
+        const categoryId = document.querySelector('[name="category_id"]').value;
+        const lat = document.getElementById('latitudeInput').value;
+        const lng = document.getElementById('longitudeInput').value;
+        const address = document.getElementById('locationAddressInput').value;
+
+        if (!categoryId) return true;
+
+        e.preventDefault();
+
+        fetch('/api/check-repeated-complaint', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                category_id: categoryId,
+                latitude: lat,
+                longitude: lng,
+                location_address: address
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.success && data.is_repeated) {
+                document.getElementById('repeatedWarningText').innerText = data.warning || "Your previous complaint about this problem at this location was not resolved. This new complaint will be marked for strict administrative action.";
+                const warningModal = new bootstrap.Modal(document.getElementById('repeatedComplaintModal'));
+                warningModal.show();
+            } else {
+                isPreCheckDone = true;
+                form.submit();
+            }
+        })
+        .catch(() => {
+            isPreCheckDone = true;
+            form.submit();
+        });
+    });
+});
+
+function forceSubmitForm() {
+    isPreCheckDone = true;
+    const warningModal = bootstrap.Modal.getInstance(document.getElementById('repeatedComplaintModal'));
+    if (warningModal) warningModal.hide();
+    document.querySelector('form').submit();
+}
+
+function initProblemMap() {
+    const latInput = document.getElementById('latitudeInput');
+    const lngInput = document.getElementById('longitudeInput');
+    const addressInput = document.getElementById('locationAddressInput');
+    const fallbackInput = document.getElementById('locationFallbackInput');
+
+    function updateCoords(lat, lng, address) {
+        currentLat = lat;
+        currentLng = lng;
+        latInput.value = lat.toFixed(6);
+        lngInput.value = lng.toFixed(6);
+        if (address) {
+            addressInput.value = address;
+            fallbackInput.value = address;
+        } else if (!addressInput.value) {
+            addressInput.value = `Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+            fallbackInput.value = addressInput.value;
+        }
+    }
+
+    if (typeof google !== 'undefined' && google.maps) {
+        const defaultPos = { lat: currentLat, lng: currentLng };
+        googleMap = new google.maps.Map(document.getElementById('mapContainer'), {
+            center: defaultPos,
+            zoom: 14
+        });
+
+        googleMarker = new google.maps.Marker({
+            position: defaultPos,
+            map: googleMap,
+            draggable: true,
+            title: "Problem Location"
+        });
+
+        updateCoords(currentLat, currentLng);
+
+        googleMarker.addListener('dragend', function(e) {
+            reverseGeocode(e.latLng.lat(), e.latLng.lng());
+        });
+
+        googleMap.addListener('click', function(e) {
+            googleMarker.setPosition(e.latLng);
+            reverseGeocode(e.latLng.lat(), e.latLng.lng());
+        });
+
+        const searchInput = document.getElementById('mapSearchInput');
+        if (google.maps.places) {
+            const autocomplete = new google.maps.places.Autocomplete(searchInput);
+            autocomplete.bindTo('bounds', googleMap);
+            autocomplete.addListener('place_changed', function() {
+                const place = autocomplete.getPlace();
+                if (place.geometry) {
+                    googleMap.setCenter(place.geometry.location);
+                    googleMap.setZoom(16);
+                    googleMarker.setPosition(place.geometry.location);
+                    updateCoords(place.geometry.location.lat(), place.geometry.location.lng(), place.formatted_address);
+                }
+            });
+        }
+        return;
+    }
+
+    if (typeof L !== 'undefined') {
+        leafletMap = L.map('mapContainer').setView([currentLat, currentLng], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(leafletMap);
+
+        leafletMarker = L.marker([currentLat, currentLng], { draggable: true }).addTo(leafletMap);
+        updateCoords(currentLat, currentLng);
+
+        leafletMarker.on('dragend', function(e) {
+            const pos = e.target.getLatLng();
+            reverseGeocode(pos.lat, pos.lng);
+        });
+
+        leafletMap.on('click', function(e) {
+            leafletMarker.setLatLng(e.latlng);
+            reverseGeocode(e.latlng.lat, e.latlng.lng);
+        });
+    }
+}
+
+function updateMapPosition(lat, lng, address) {
+    document.getElementById('latitudeInput').value = lat.toFixed(6);
+    document.getElementById('longitudeInput').value = lng.toFixed(6);
+    if (address) {
+        document.getElementById('locationAddressInput').value = address;
+        document.getElementById('locationFallbackInput').value = address;
+    }
+
+    if (googleMap && googleMarker) {
+        const pos = { lat: lat, lng: lng };
+        googleMap.setCenter(pos);
+        googleMap.setZoom(16);
+        googleMarker.setPosition(pos);
+    } else if (leafletMap && leafletMarker) {
+        leafletMap.setView([lat, lng], 16);
+        leafletMarker.setLatLng([lat, lng]);
+    }
+}
+
+function locateUserCurrentPosition() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            reverseGeocode(lat, lng);
+        }, function(error) {
+            alert("Could not retrieve current location. Please select your problem location on the map.");
+        }, { enableHighAccuracy: true });
+    } else {
+        alert("Geolocation is not supported by your browser.");
+    }
+}
+
+function searchLocationQuery() {
+    const query = document.getElementById('mapSearchInput').value.trim();
+    if (!query) return;
+
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.length > 0) {
+                const lat = parseFloat(data[0].lat);
+                const lng = parseFloat(data[0].lon);
+                updateMapPosition(lat, lng, data[0].display_name);
+            } else {
+                alert("Location not found. Please try another search term.");
+            }
+        })
+        .catch(() => alert("Error searching location."));
+}
+
+function reverseGeocode(lat, lng) {
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+        .then(res => res.json())
+        .then(data => {
+            const address = data && data.display_name ? data.display_name : `Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+            updateMapPosition(lat, lng, address);
+        })
+        .catch(() => {
+            updateMapPosition(lat, lng, `Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
+        });
+}
+</script>
 {% endblock %}

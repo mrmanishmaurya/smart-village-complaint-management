@@ -5,10 +5,12 @@
 <div class="container py-4">
 
     <!-- VILLAGE HEADER BANNER -->
-    <div class="dashboard-header-banner d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div class="dashboard-header-banner d-flex justify-content-between align-items-center flex-wrap gap-3 p-4 rounded-4 shadow-sm mb-4">
         <div>
-            <h2 class="fw-bold mb-1">🏡 Welcome, {{ session.get('user_name') }}!</h2>
-            <p class="mb-0 text-light opacity-90">Manage your complaints and track resolution progress for a cleaner village.</p>
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                <h2 class="fw-bold mb-0 text-white">🏡 Welcome, {{ session.get('user_name') }}!</h2>
+            </div>
+            <p class="mb-0 text-light opacity-90">Manage your complaints, track location map updates, and verify resolution progress.</p>
         </div>
         <a class="btn btn-warning btn-lg fw-bold rounded-pill px-4 shadow-sm text-dark" href="{{ url_for('submit_complaint') }}">
             📝 Submit New Complaint
@@ -24,32 +26,26 @@
                     <h5 class="fw-bold text-dark m-0">🔔 Complaint Resolved</h5>
                     <span class="badge bg-warning text-dark px-3 py-2 fs-6 rounded-pill">Verification Pending</span>
                 </div>
-                <p class="text-secondary mb-3">
-                    Your complaint <strong>{{ c.complaint_id }}</strong> ({{ c.category_name }}) has been marked as resolved by the administration.
-                    Admin has submitted a proof photo showing the completed work. Please inspect the solution below and confirm whether your problem has been solved.
-                </p>
 
-                <div class="row align-items-center g-3 mb-4 p-3 bg-white rounded border">
-                    <div class="col-md-4 text-center">
-                        {% if c.resolution_photo %}
-                        <a href="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" target="_blank">
-                            <img src="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 180px;" alt="Resolution proof image">
+                <p class="fs-6 text-dark fw-medium mb-1">Problem has been resolved. Please verify the solution.</p>
+                <p class="text-secondary mb-3"><strong>Complaint ID:</strong> <span class="fw-bold text-dark">{{ c.complaint_id }}</span></p>
+
+                <div class="mb-4 p-3 bg-white rounded border">
+                    <h6 class="fw-bold text-success mb-2">Resolution Proof</h6>
+                    {% if c.resolution_photo %}
+                    <div class="text-center my-2">
+                        <a href="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" target="_blank" title="Click to view full size image">
+                            <img src="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 250px; object-fit: contain;" alt="Resolution Proof Photo">
                         </a>
-                        <small class="text-muted d-block mt-1">Resolution Proof Photo</small>
-                        {% else %}
-                        <div class="p-3 bg-light text-muted rounded">📷 Proof Image Attached</div>
-                        {% endif %}
+                        <small class="text-muted d-block mt-1">🔍 Click photo to view larger</small>
                     </div>
-                    <div class="col-md-8">
-                        <h6 class="fw-bold text-success mb-1">Resolution Message:</h6>
-                        <p class="fst-italic text-dark bg-light p-3 rounded border mb-2">
-                            "{{ c.resolution_message or 'Your problem has been resolved. Please verify the solution.' }}"
-                        </p>
-                        <small class="text-muted">Resolved Date: {{ c.resolved_at or c.updated_at }}</small>
-                    </div>
+                    {% else %}
+                    <div class="p-3 bg-light text-muted rounded text-center">📷 No resolution proof photo uploaded</div>
+                    {% endif %}
+                    <small class="text-muted d-block mt-2"><strong>Resolution Date:</strong> {{ c.resolved_at or c.updated_at }}</small>
                 </div>
 
-                <div class="d-flex gap-3 flex-wrap justify-content-end">
+                <div class="d-flex gap-3 flex-wrap justify-content-center">
                     <form method="post" action="{{ url_for('citizen_verify_resolution', complaint_db_id=c.id) }}" onsubmit="return confirm('Are you sure you want to confirm that your problem has been solved?');">
                         <input type="hidden" name="action" value="approve">
                         <button type="submit" class="btn btn-success btn-lg fw-bold rounded-pill px-4 shadow-sm">
@@ -75,8 +71,9 @@
             <table class="table align-middle">
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th>Complaint ID</th>
                         <th>Category</th>
+                        <th>Problem Location</th>
                         <th>Status</th>
                         <th>Date</th>
                         <th class="text-end">Actions</th>
@@ -85,8 +82,23 @@
                 <tbody>
                 {% for c in complaints %}
                 <tr>
-                    <td><span class="fw-bold">{{ c.complaint_id }}</span></td>
+                    <td>
+                        <span class="fw-bold d-block">{{ c.complaint_id }}</span>
+                        {% if c.strict_action_required == 1 %}
+                        <span class="badge bg-danger text-white mt-1 px-2 py-1" style="font-size: 10px;">
+                            ⚠️ STRICT ACTION REQUIRED
+                        </span>
+                        {% endif %}
+                    </td>
                     <td>{{ c.category_name }}</td>
+                    <td>
+                        <small class="d-block text-truncate" style="max-width: 200px;">
+                            📍 {{ c.location_address or c.location or 'Not specified' }}
+                        </small>
+                        {% if c.latitude and c.longitude %}
+                        <a href="https://www.google.com/maps?q={{ c.latitude }},{{ c.longitude }}" target="_blank" class="small text-primary font-weight-bold" style="font-size: 11px;">[Google Maps]</a>
+                        {% endif %}
+                    </td>
                     <td>
                         <span class="badge 
                             {% if c.status == 'Closed' %}bg-success
@@ -101,7 +113,9 @@
                     <td class="text-end">
                         <div class="btn-group btn-group-sm" role="group">
                             <a class="btn btn-outline-primary" href="{{ url_for('complaint_detail', complaint_db_id=c.id) }}">View</a>
+                            {% if c.status not in ['Resolved', 'Closed'] %}
                             <a class="btn btn-outline-warning" href="{{ url_for('edit_complaint', complaint_db_id=c.id) }}">Edit</a>
+                            {% endif %}
                             <form method="post" action="{{ url_for('delete_complaint', complaint_db_id=c.id) }}" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this complaint?');">
                                 <button type="submit" class="btn btn-outline-danger btn-sm" style="border-top-left-radius:0; border-bottom-left-radius:0;">Delete</button>
                             </form>
@@ -110,7 +124,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center text-muted py-4">
+                    <td colspan="6" class="text-center text-muted py-4">
                         No complaints submitted yet. Click "Submit New Complaint" to get started!
                     </td>
                 </tr>

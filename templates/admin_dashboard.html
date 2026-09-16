@@ -2,18 +2,21 @@
 
 {% block content %}
 
-<div class="admin-dashboard-banner d-flex justify-content-between align-items-center flex-wrap gap-3">
+<div class="container py-3">
+
+<div class="admin-dashboard-banner d-flex justify-content-between align-items-center flex-wrap gap-2 p-3 mb-3">
     <div>
-        <h2 class="fw-bold mb-1">👨‍💼 Administrator Control Panel</h2>
-        <p class="mb-0 text-light opacity-90">Monitor, manage, and update resolution status for all Smart Village citizen complaints.</p>
+        <h3 class="fw-bold mb-1 fs-4">👨‍💼 Administrator Control Panel</h3>
+        <p class="mb-0 text-light opacity-90 small">Monitor, manage, and update resolution status for all Smart Village citizen complaints.</p>
     </div>
     <span class="badge bg-warning text-dark px-3 py-2 fs-6 rounded-pill fw-bold">Admin: {{ session.get('admin_name', 'Official') }}</span>
 </div>
 
-<div class="row g-3 mb-4">
+<div class="row g-2 mb-3">
 
     {% set cards = [
         ('Total', total, 'primary'),
+        ('Strict Action', stats['Strict Action'], 'danger'),
         ('Submitted', stats['Submitted'], 'secondary'),
         ('Under Review', stats['Under Review'], 'warning'),
         ('In Progress', stats['In Progress'], 'info'),
@@ -23,10 +26,10 @@
 
     {% for title, num, color in cards %}
 
-    <div class="col-md-4 col-lg-2">
-        <div class="card text-center p-3 border-0 shadow-sm">
-            <div class="small text-muted">{{ title }}</div>
-            <div class="display-6 text-{{ color }} fw-bold">
+    <div class="col-6 col-md-3 col-lg">
+        <div class="card text-center p-2 border-0 shadow-sm {% if title == 'Strict Action' and num > 0 %}border-start border-4 border-danger bg-danger-subtle{% endif %}">
+            <div class="small text-muted" style="font-size: 11px;">{{ title }}</div>
+            <div class="fs-4 text-{{ color }} fw-bold">
                 {{ num }}
             </div>
         </div>
@@ -37,24 +40,24 @@
 </div>
 
 
-<div class="card p-3">
+<div class="card p-3 shadow-sm border-0">
 
-    <h4 class="mb-3">All Complaints</h4>
+    <h5 class="fw-bold mb-3">All Complaints</h5>
 
-    <div class="table-responsive">
+    <div class="table-container" style="width: 100%; overflow-x: auto;">
 
-        <table class="table align-middle">
+        <table class="table table-hover align-middle text-nowrap mb-0" style="font-size: 13px;">
 
             <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Citizen</th>
-                    <th>Category</th>
-                    <th>Photo</th>
-                    <th>Status</th>
-                    <th>Citizen Verification</th>
-                    <th>Action / Details</th>
-                    <th>Update Status & Proof</th>
+                <tr style="font-size: 12px; background: #e8f5ed; color: #087f5b;">
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Complaint ID</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Citizen Name</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Category</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Location</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Photo</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Status</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Action / Details</th>
+                    <th style="padding: 8px; font-size: 12px; font-weight: 600;">Update Status</th>
                 </tr>
             </thead>
 
@@ -62,65 +65,87 @@
 
                 {% for c in complaints %}
 
-                <tr>
+                <tr style="height: 60px;" class="{% if c.strict_action_required == 1 %}table-danger border-start border-4 border-danger{% endif %}">
 
-                    <td><strong>{{ c.complaint_id }}</strong></td>
-
-                    <td>{{ c.user_name }}</td>
-
-                    <td>{{ c.category_name }}</td>
-
-                    <td>
-                        {% if c.photo %}
-                        <a href="#" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
-                            <img src="{{ url_for('uploaded_file', filename=c.photo) }}" alt="Photo" style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd;">
-                        </a>
-                        {% else %}
-                        <span class="badge bg-light text-secondary border">No Image</span>
+                    <!-- 1. Complaint ID -->
+                    <td style="padding: 7px 8px; font-size: 12px; font-weight: 600; white-space: nowrap;">
+                        <span class="d-block">{{ c.complaint_id }}</span>
+                        {% if c.strict_action_required == 1 %}
+                        <span class="badge bg-danger text-white px-2 py-1 mt-1 d-inline-block shadow-sm" style="font-size: 10px;">
+                            ⚠️ STRICT ACTION REQUIRED
+                        </span>
+                        <small class="text-danger fw-bold d-block" style="font-size: 10px;">Repeated Complaint</small>
                         {% endif %}
                     </td>
 
-                    <td>
+                    <!-- 3. Citizen Name -->
+                    <td style="padding: 7px 8px; font-size: 13px;">
+                        {% if c.show_name_to_admin == 0 %}
+                        <span class="badge bg-secondary" style="font-size: 11px;">Hidden</span>
+                        {% else %}
+                        <div class="fw-bold text-dark">{{ c.user_name }}</div>
+                        {% endif %}
+                    </td>
+
+                    <!-- 4. Category -->
+                    <td style="padding: 7px 8px; font-size: 13px;">
+                        {{ c.category_name }}
+                    </td>
+
+                    <!-- 5. Problem Location -->
+                    <td style="padding: 7px 8px; font-size: 12px; max-width: 180px; text-overflow: ellipsis; overflow: hidden;">
+                        <span title="{{ c.location_address or c.location or '' }}">
+                            📍 {{ (c.location_address or c.location or 'Not provided')[:25] }}{% if (c.location_address or c.location or '')|length > 25 %}...{% endif %}
+                        </span>
+                        {% if c.latitude and c.longitude %}
+                        <br><a href="https://www.google.com/maps?q={{ c.latitude }},{{ c.longitude }}" target="_blank" class="small text-primary font-weight-bold" style="font-size: 10px;">[Google Maps]</a>
+                        {% endif %}
+                    </td>
+
+                    <!-- 6. Photo -->
+                    <td style="padding: 7px 8px;">
+                        {% if c.photo %}
+                        <a href="#" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
+                            <img src="{{ url_for('uploaded_file', filename=c.photo) }}" alt="Photo" style="width: 42px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd;">
+                        </a>
+                        {% else %}
+                        <span class="badge bg-light text-secondary border" style="font-size: 11px; padding: 4px 7px;">[No Image]</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- 7. Status -->
+                    <td style="padding: 7px 8px;">
                         <span class="badge 
                             {% if c.status == 'Resolved' %}bg-warning text-dark
                             {% elif c.status == 'Closed' %}bg-success
                             {% elif c.status == 'Reopened' %}bg-danger
                             {% elif c.status == 'In Progress' %}bg-info text-dark
-                            {% else %}bg-primary{% endif %}">
+                            {% else %}bg-primary{% endif %}"
+                            style="padding: 4px 7px; font-size: 11px; border-radius: 12px; white-space: nowrap;">
                             {{ c.status }}
                         </span>
                     </td>
 
-                    <td>
-                        {% if c.citizen_approval == 'Approved' or c.status == 'Closed' %}
-                        <span class="badge bg-success">Approved by Citizen</span>
-                        {% elif c.citizen_approval == 'Rejected' or c.status == 'Reopened' %}
-                        <span class="badge bg-danger">Rejected by Citizen</span>
-                        {% elif c.status == 'Resolved' %}
-                        <span class="badge bg-warning text-dark">Pending Verification</span>
-                        {% else %}
-                        <span class="badge bg-light text-secondary border">N/A</span>
-                        {% endif %}
-                    </td>
-
-                    <td>
-                        <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
-                            👁️ View Details
+                    <!-- 8. Action / Details -->
+                    <td style="padding: 7px 8px;">
+                        <button type="button" class="btn btn-sm btn-outline-info" style="padding: 4px 8px; font-size: 12px; border-radius: 5px;" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
+                            👁 View Details
                         </button>
                     </td>
 
-
-                    <td style="min-width: 200px;">
+                    <!-- 9. Update Status -->
+                    <td style="padding: 7px 8px; min-width: 210px;">
                         <form
                             method="post"
                             action="{{ url_for('update_status', complaint_id=c.id) }}"
                             enctype="multipart/form-data"
                             class="d-flex flex-column gap-1"
                         >
-                            <div class="d-flex gap-1">
+                            <div class="d-flex gap-1 align-items-center">
                                 <select
                                     name="status"
                                     class="form-select form-select-sm"
+                                    style="padding: 3px 8px; font-size: 12px; border-radius: 5px; height: 31px;"
                                 >
                                     {% for s in [
                                         'Submitted',
@@ -139,109 +164,21 @@
                                     {% endfor %}
                                 </select>
 
-                                <button class="btn btn-sm btn-success">
+                                <button class="btn btn-sm btn-success" style="padding: 4px 9px; font-size: 12px; border-radius: 5px; white-space: nowrap;">
                                     Update
                                 </button>
                             </div>
-                            <input type="file" name="resolution_photo" class="form-control form-control-sm mt-1" accept="image/*" title="Upload resolution proof photo for Resolved status">
-                            <input type="text" name="resolution_message" class="form-control form-control-sm mt-1" placeholder="Resolution proof message..." value="{{ c.resolution_message or '' }}">
+                            <input type="file" name="resolution_photo" class="form-control form-control-sm mt-1" style="font-size: 11px; padding: 2px 5px;" accept="image/*" title="Upload resolution proof photo for Resolved status">
+                            <input type="text" name="resolution_message" class="form-control form-control-sm mt-1" style="font-size: 11px; padding: 3px 6px;" placeholder="Resolution proof message..." value="{{ c.resolution_message or '' }}">
                         </form>
                     </td>
 
                 </tr>
 
-                <!-- Complaint Details & Image Modal -->
-                <div class="modal fade" id="complaintModal{{ c.id }}" tabindex="-1" aria-labelledby="complaintModalLabel{{ c.id }}" aria-hidden="true">
-                  <div class="modal-dialog modal-lg modal-dialog-centered">
-                    <div class="modal-content">
-                      <div class="modal-header bg-light">
-                        <h5 class="modal-title" id="complaintModalLabel{{ c.id }}">Complaint Details - {{ c.complaint_id }}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                      </div>
-                      <div class="modal-body">
-                        <div class="row">
-                          <div class="col-md-6">
-                            <p><strong>Citizen:</strong> {{ c.user_name }}</p>
-                            <p><strong>Category:</strong> {{ c.category_name }}</p>
-                            <p><strong>Location:</strong> {{ c.location or 'Not provided' }}</p>
-                            <p><strong>Status:</strong> 
-                                <span class="badge {% if c.status == 'Resolved' %}bg-warning text-dark{% elif c.status == 'Closed' %}bg-success{% elif c.status == 'Reopened' %}bg-danger{% else %}bg-primary{% endif %}">
-                                    {{ c.status }}
-                                </span>
-                            </p>
-                            <p><strong>Submitted Date:</strong> {{ c.created_at }}</p>
-                            <p><strong>Description:</strong></p>
-                            <div class="p-3 bg-light rounded border mb-3">
-                                {{ c.description }}
-                            </div>
-                          </div>
-                          <div class="col-md-6 text-center">
-                            <label class="fw-bold d-block mb-2">Original Complaint Image:</label>
-                            {% if c.photo %}
-                              <a href="{{ url_for('uploaded_file', filename=c.photo) }}" target="_blank">
-                                <img src="{{ url_for('uploaded_file', filename=c.photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 250px;" alt="Complaint photo">
-                              </a>
-                              <small class="text-muted d-block mt-1">Click image to open full size</small>
-                            {% else %}
-                              <div class="p-4 bg-light rounded border text-muted">
-                                📷 No image attached with this complaint.
-                              </div>
-                            {% endif %}
-                          </div>
-                        </div>
-
-                        {% if c.resolution_photo or c.status in ['Resolved', 'Closed', 'Reopened'] %}
-                        <hr>
-                        <div class="row bg-light p-3 rounded border mx-0 mt-2">
-                            <h6 class="fw-bold text-success mb-2">📸 Resolution & Citizen Verification Details</h6>
-                            <div class="col-md-6 text-center">
-                                <label class="fw-bold d-block mb-2">Resolution Proof Photo:</label>
-                                {% if c.resolution_photo %}
-                                <a href="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" target="_blank">
-                                    <img src="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 220px;" alt="Resolution proof">
-                                </a>
-                                {% else %}
-                                <div class="p-3 bg-white rounded border text-muted small">
-                                    ⚠️ No resolution photo uploaded yet.
-                                </div>
-                                {% endif %}
-                            </div>
-                            <div class="col-md-6">
-                                <p class="mb-1"><strong>Resolution Message:</strong></p>
-                                <div class="p-2 bg-white rounded border small mb-2">
-                                    {{ c.resolution_message or 'Problem has been resolved. Please verify the solution.' }}
-                                </div>
-                                <p class="mb-1"><strong>Resolved Date:</strong> <span class="small text-muted">{{ c.resolved_at or 'N/A' }}</span></p>
-                                <p class="mb-1"><strong>Citizen Verification:</strong> 
-                                    {% if c.citizen_approval == 'Approved' or c.status == 'Closed' %}
-                                    <span class="badge bg-success">Approved by Citizen</span>
-                                    {% elif c.citizen_approval == 'Rejected' or c.status == 'Reopened' %}
-                                    <span class="badge bg-danger">Rejected by Citizen</span>
-                                    {% elif c.status == 'Resolved' %}
-                                    <span class="badge bg-warning text-dark">Pending Verification</span>
-                                    {% else %}
-                                    <span class="badge bg-light text-secondary border">N/A</span>
-                                    {% endif %}
-                                </p>
-                                {% if c.citizen_approved_at %}
-                                <p class="mb-0"><strong>Verified Date:</strong> <span class="small text-muted">{{ c.citizen_approved_at }}</span></p>
-                                {% endif %}
-                            </div>
-                        </div>
-                        {% endif %}
-
-                      </div>
-                      <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {% else %}
 
                 <tr>
-                    <td colspan="7" class="text-center text-muted">
+                    <td colspan="9" class="text-center text-muted py-3">
                         No complaints found.
                     </td>
                 </tr>
@@ -256,6 +193,191 @@
 
 </div>
 
+</div>
+
+<!-- COMPLAINT DETAILS MODALS (Rendered outside <table> for valid HTML structure) -->
+{% for c in complaints %}
+<div class="modal fade" id="complaintModal{{ c.id }}" tabindex="-1" aria-labelledby="complaintModalLabel{{ c.id }}" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title fw-bold" id="complaintModalLabel{{ c.id }}">Complaint Details - {{ c.complaint_id }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        {% if c.strict_action_required == 1 %}
+        <div class="alert alert-danger border-2 border-danger shadow-sm rounded-3 p-3 mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+                <h5 class="fw-bold text-danger m-0">⚠️ STRICT ACTION REQUIRED – REPEATED COMPLAINT</h5>
+                <span class="badge bg-danger fs-6 rounded-pill px-3 py-1">URGENT ACTION NEEDED</span>
+            </div>
+            <p class="mb-2 text-dark small"><strong>Match Trigger:</strong> {{ c.duplicate_match_reason or 'Same Citizen ID + Same Problem Category + Same Location' }}</p>
+            <div class="p-2 bg-white rounded border border-danger small mb-2">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <p class="mb-1 text-primary"><strong>Current Complaint ID:</strong> {{ c.complaint_id }}</p>
+                        <p class="mb-1"><strong>Current Complaint Date:</strong> {{ c.created_at }}</p>
+                        <p class="mb-1"><strong>Matched Category:</strong> {{ c.category_name }}</p>
+                        <p class="mb-0"><strong>Matched Location:</strong> {{ c.location_address or c.location or 'Same Location' }}</p>
+                    </div>
+                    <div class="col-md-6 border-start ps-3">
+                        <p class="mb-1 text-danger"><strong>Previous Complaint ID:</strong> {{ c.previous_complaint_id or 'N/A' }}</p>
+                        <p class="mb-1"><strong>Previous Status:</strong> <span class="badge bg-warning text-dark">{{ c.prev_status or 'Ignored / Unresolved' }}</span></p>
+                        <p class="mb-1"><strong>Original Complaint Date:</strong> {{ c.prev_created_at or 'N/A' }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="text-center p-2 bg-light rounded border small text-dark">
+                <strong class="d-block mb-1">Complaint History Flow:</strong>
+                <span class="badge bg-secondary p-2 fs-6">{{ c.previous_complaint_id or 'CID-001' }}</span> 
+                <span class="badge bg-outline-dark text-dark px-2">Status: {{ c.prev_status or 'Ignored' }}</span>
+                <span class="fs-4 mx-2 text-danger">➔</span>
+                <span class="badge bg-danger p-2 fs-6">{{ c.complaint_id }}</span> 
+                <span class="badge bg-danger text-white px-2">STRICT ACTION REQUIRED</span>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="p-3 bg-light rounded border h-100">
+                <h6 class="fw-bold text-primary mb-2">👤 Citizen Information</h6>
+                <p class="mb-1"><strong>Citizen Name:</strong> 
+                    {% if c.show_name_to_admin == 0 %}
+                    <span class="badge bg-secondary">Hidden (Privacy OFF)</span>
+                    {% else %}
+                    {{ c.user_name }}
+                    {% endif %}
+                </p>
+                <p class="mb-1"><strong>Mobile:</strong> 
+                    {% if c.show_name_to_admin == 0 %}
+                    <span class="badge bg-secondary">Hidden</span>
+                    {% else %}
+                    {{ c.user_phone or 'N/A' }}
+                    {% endif %}
+                </p>
+                <p class="mb-1"><strong>Email:</strong> 
+                    {% if c.show_name_to_admin == 0 %}
+                    <span class="badge bg-secondary">Hidden</span>
+                    {% else %}
+                    {{ c.user_email or 'N/A' }}
+                    {% endif %}
+                </p>
+                <p class="mb-1"><strong>Category:</strong> {{ c.category_name }}</p>
+                <p class="mb-1"><strong>Status:</strong> 
+                    <span class="badge {% if c.status == 'Resolved' %}bg-warning text-dark{% elif c.status == 'Closed' %}bg-success{% elif c.status == 'Reopened' %}bg-danger{% else %}bg-primary{% endif %}">
+                        {{ c.status }}
+                    </span>
+                </p>
+                <p class="mb-2"><strong>Submitted Date:</strong> {{ c.created_at }}</p>
+                <p class="mb-1"><strong>Description:</strong></p>
+                <div class="p-2 bg-white rounded border small text-secondary">
+                    {{ c.description }}
+                </div>
+            </div>
+          </div>
+
+          <div class="col-md-6 text-center">
+            <div class="p-3 bg-light rounded border h-100">
+                <label class="fw-bold d-block mb-2 text-primary">📷 Complaint Photo:</label>
+                {% if c.photo %}
+                  <a href="{{ url_for('uploaded_file', filename=c.photo) }}" target="_blank">
+                    <img src="{{ url_for('uploaded_file', filename=c.photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 220px;" alt="Complaint photo">
+                  </a>
+                  <small class="text-muted d-block mt-1">Click image to open full size</small>
+                {% else %}
+                  <div class="p-4 bg-white rounded border text-muted">
+                    📷 No image attached with this complaint.
+                  </div>
+                {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- PROBLEM LOCATION SECTION (GOOGLE MAP FOR ADMIN) -->
+        <hr class="my-3">
+        <div class="card border-primary border-1 bg-light rounded-3 p-3">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <h6 class="fw-bold text-primary m-0">📍 Problem Location</h6>
+                {% if c.latitude and c.longitude %}
+                <a href="https://www.google.com/maps?q={{ c.latitude }},{{ c.longitude }}" target="_blank" class="btn btn-sm btn-primary fw-bold rounded-pill px-3">
+                    🗺️ Open in Google Maps
+                </a>
+                {% elif c.location_address or c.location %}
+                <a href="https://www.google.com/maps?q={{ (c.location_address or c.location)|urlencode }}" target="_blank" class="btn btn-sm btn-primary fw-bold rounded-pill px-3">
+                    🗺️ Open in Google Maps
+                </a>
+                {% endif %}
+            </div>
+
+            <div class="row g-2 align-items-center">
+                <div class="col-md-7">
+                    <div id="adminMap{{ c.id }}" data-lat="{{ c.latitude or '' }}" data-lng="{{ c.longitude or '' }}" data-address="{{ c.location_address or c.location or '' }}" style="height: 210px; width: 100%; z-index: 1;" class="rounded border shadow-sm"></div>
+                </div>
+                <div class="col-md-5">
+                    <div class="p-2 bg-white rounded border small">
+                        <p class="mb-1"><strong>Location Address:</strong><br>{{ c.location_address or c.location or 'Not provided' }}</p>
+                        <p class="mb-1"><strong>Latitude:</strong> {{ c.latitude or 'N/A' }}</p>
+                        <p class="mb-2"><strong>Longitude:</strong> {{ c.longitude or 'N/A' }}</p>
+                        {% if c.latitude and c.longitude %}
+                        <a href="https://www.google.com/maps?q={{ c.latitude }},{{ c.longitude }}" target="_blank" class="btn btn-outline-primary btn-sm w-100 fw-bold py-1" style="font-size: 11px;">
+                            View Exact Location on Google Maps ➔
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if c.resolution_photo or c.status in ['Resolved', 'Closed', 'Reopened'] %}
+        <hr class="my-3">
+        <div class="row bg-light p-3 rounded border mx-0 mt-2">
+            <h6 class="fw-bold text-success mb-2">📸 Resolution & Citizen Verification Details</h6>
+            <div class="col-md-6 text-center">
+                <label class="fw-bold d-block mb-2">Resolution Proof Photo:</label>
+                {% if c.resolution_photo %}
+                <a href="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" target="_blank">
+                    <img src="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 200px;" alt="Resolution proof">
+                </a>
+                {% else %}
+                <div class="p-3 bg-white rounded border text-muted small">
+                    ⚠️ No resolution photo uploaded yet.
+                </div>
+                {% endif %}
+            </div>
+            <div class="col-md-6">
+                <p class="mb-1"><strong>Resolution Message:</strong></p>
+                <div class="p-2 bg-white rounded border small mb-2">
+                    {{ c.resolution_message or 'Problem has been resolved. Please verify the solution.' }}
+                </div>
+                <p class="mb-1"><strong>Resolved Date:</strong> <span class="small text-muted">{{ c.resolved_at or 'N/A' }}</span></p>
+                <p class="mb-1"><strong>Citizen Verification:</strong> 
+                    {% if c.citizen_approval == 'Approved' or c.status == 'Closed' %}
+                    <span class="badge bg-success">Approved by Citizen</span>
+                    {% elif c.citizen_approval == 'Rejected' or c.status == 'Reopened' %}
+                    <span class="badge bg-danger">Rejected by Citizen</span>
+                    {% elif c.status == 'Resolved' %}
+                    <span class="badge bg-warning text-dark">Pending Verification</span>
+                    {% else %}
+                    <span class="badge bg-light text-secondary border">N/A</span>
+                    {% endif %}
+                </p>
+                {% if c.citizen_approved_at %}
+                <p class="mb-0"><strong>Verified Date:</strong> <span class="small text-muted">{{ c.citizen_approved_at }}</span></p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -263,11 +385,40 @@
   // Automatic polling for new complaints on Admin Dashboard
   (function() {
     let autoRefreshTimer = setTimeout(function() {
-      // Do not refresh if user has a modal open
       if (!document.querySelector('.modal.show')) {
         window.location.reload();
       }
     }, 30000);
   })();
+
+  // Render Admin Maps when modal is shown
+  document.addEventListener("DOMContentLoaded", function() {
+      document.querySelectorAll('.modal').forEach(function(modalEl) {
+          modalEl.addEventListener('shown.bs.modal', function() {
+              const id = this.id.replace('complaintModal', '');
+              const mapDiv = document.getElementById('adminMap' + id);
+              if (!mapDiv) return;
+
+              const lat = parseFloat(mapDiv.getAttribute('data-lat'));
+              const lng = parseFloat(mapDiv.getAttribute('data-lng'));
+              const address = mapDiv.getAttribute('data-address');
+
+              if (!isNaN(lat) && !isNaN(lng)) {
+                  if (typeof google !== 'undefined' && google.maps) {
+                      const pos = { lat: lat, lng: lng };
+                      const gMap = new google.maps.Map(mapDiv, { center: pos, zoom: 15 });
+                      new google.maps.Marker({ position: pos, map: gMap });
+                  } else if (typeof L !== 'undefined') {
+                      mapDiv.innerHTML = '';
+                      const lMap = L.map(mapDiv).setView([lat, lng], 15);
+                      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(lMap);
+                      L.marker([lat, lng]).addTo(lMap).bindPopup("<b>Complaint Location</b><br>" + (address || '')).openPopup();
+                  }
+              } else {
+                  mapDiv.innerHTML = "<div class='d-flex align-items-center justify-content-center h-100 text-muted p-3 text-center'>📍 Address provided as text: " + (address || 'No coordinates provided') + "</div>";
+              }
+          });
+      });
+  });
 </script>
 {% endblock %}
