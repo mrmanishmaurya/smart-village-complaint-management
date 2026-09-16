@@ -203,6 +203,41 @@ def save_optimized_photo(photo_file):
     photo_file.save(filepath)
     return filename
 
+def save_resolution_photo(photo_file):
+    if not photo_file or not photo_file.filename or not allowed_file(photo_file.filename):
+        return None
+    res_dir = os.path.join(app.config["UPLOAD_FOLDER"], "resolutions")
+    os.makedirs(res_dir, exist_ok=True)
+    safe_name = secure_filename(photo_file.filename)
+    filename = f"resolutions/{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    
+    if HAS_PIL:
+        try:
+            photo_file.stream.seek(0)
+            img = Image.open(photo_file.stream)
+            img = ImageOps.exif_transpose(img)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
+            img.save(filepath, "JPEG", optimize=True, quality=85)
+            return filename
+        except Exception as e:
+            logger.warning(f"[RESOLUTION PHOTO OPTIMIZATION NOTICE] {e}")
+            photo_file.stream.seek(0)
+            
+    photo_file.save(filepath)
+    return filename
+
+def send_resolution_notification(complaint):
+    """Optional notification helper for resolution updates."""
+    smtp_server = os.environ.get("SMTP_SERVER")
+    cid = complaint.get("complaint_id") if isinstance(complaint, dict) else "N/A"
+    if smtp_server:
+        logger.info(f"[EMAIL SERVICE STUB] Email sent to citizen for resolved complaint {cid}")
+    else:
+        logger.info(f"[IN-APP NOTIFICATION] Active for resolved complaint {cid}")
+
 def get_mysql_pool(connect_kwargs):
     global mysql_pool
     if mysql_pool is None and mysql_module is not None:
@@ -417,15 +452,23 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_complaints_created_at ON complaints(created_at)",
                 "CREATE INDEX IF NOT EXISTS idx_feedback_complaint_id ON feedback(complaint_id)"
             ]
-            for idx_sql in sqlite_indexes:
+            sqlite_cols = [
+                ("resolution_photo", "TEXT"),
+                ("resolution_message", "TEXT"),
+                ("resolved_at", "DATETIME"),
+                ("citizen_approval", "TEXT DEFAULT 'Pending'"),
+                ("citizen_approved_at", "DATETIME")
+            ]
+            for col_name, col_type in sqlite_cols:
                 try:
-                    cur.execute(idx_sql)
+                    cur.execute(f"ALTER TABLE complaints ADD COLUMN {col_name} {col_type}")
                 except Exception:
                     pass
 
             admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
             hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
-            admin_emails = ["manishmaurya9934@gmail.com", "admin-manish@smartvillage.com"]
+            primary_admin = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com").strip().lower()
+            admin_emails = list(dict.fromkeys([primary_admin, "admin@smartvillage.com"]))
             for a_email in admin_emails:
                 cur.execute("SELECT id FROM admins WHERE email = ?", (a_email,))
                 if not cur.fetchone():
@@ -502,11 +545,23 @@ def init_db():
                 "CREATE INDEX idx_complaints_created_at ON complaints(created_at)",
                 "CREATE INDEX idx_feedback_complaint_id ON feedback(complaint_id)"
             ]
-            for idx_sql in mysql_indexes:
+            mysql_cols = [
+                ("resolution_photo", "VARCHAR(255) NULL"),
+                ("resolution_message", "TEXT NULL"),
+                ("resolved_at", "TIMESTAMP NULL"),
+                ("citizen_approval", "VARCHAR(50) DEFAULT 'Pending'"),
+                ("citizen_approved_at", "TIMESTAMP NULL")
+            ]
+            for col_name, col_type in mysql_cols:
                 try:
-                    cur.execute(idx_sql)
+                    cur.execute(f"ALTER TABLE complaints ADD COLUMN {col_name} {col_type}")
                 except Exception:
                     pass
+
+            try:
+                cur.execute("ALTER TABLE complaints MODIFY status VARCHAR(50) DEFAULT 'Submitted'")
+            except Exception:
+                pass
 
             for cat in ['Water Problem', 'Road Issue', 'Street Light', 'Drainage Issue', 'Electricity', 'Garbage', 'Other']:
                 try:
@@ -516,7 +571,8 @@ def init_db():
             try:
                 admin_plain_pwd = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
                 hashed_admin_pwd = generate_password_hash(admin_plain_pwd)
-                admin_emails = ["manishmaurya9934@gmail.com", "admin-manish@smartvillage.com"]
+                primary_admin = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com").strip().lower()
+                admin_emails = list(dict.fromkeys([primary_admin, "admin@smartvillage.com"]))
                 for a_email in admin_emails:
                     cur.execute("SELECT id FROM admins WHERE email = %s", (a_email,))
                     existing_admin = cur.fetchone()
@@ -941,10 +997,10 @@ def admin_login():
                 session["admin_name"] = admin["name"]
                 return redirect(url_for("admin_dashboard"))
 
-            flash("Invalid admin credentials.", "danger")
+            flash("Invalid admin email or password.", "danger")
         except Exception as e:
             logger.error(f"[ADMIN LOGIN ERROR] Database error during admin login: {e}")
-            flash(f"Database Error: {e}", "danger")
+            flash("Invalid admin email or password.", "danger")
 
     return render_template("admin_login.html")
 
@@ -967,6 +1023,7 @@ def admin_dashboard():
                 SUM(CASE WHEN status = 'Under Review' THEN 1 ELSE 0 END) AS st_review,
                 SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS st_progress,
                 SUM(CASE WHEN status = 'Resolved' THEN 1 ELSE 0 END) AS st_resolved,
+                SUM(CASE WHEN status = 'Reopened' THEN 1 ELSE 0 END) AS st_reopened,
                 SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS st_closed
             FROM complaints
         """)
@@ -977,11 +1034,13 @@ def admin_dashboard():
             "Under Review": agg_row.get("st_review") or 0,
             "In Progress": agg_row.get("st_progress") or 0,
             "Resolved": agg_row.get("st_resolved") or 0,
+            "Reopened": agg_row.get("st_reopened") or 0,
             "Closed": agg_row.get("st_closed") or 0
         }
 
         cur.execute("""
             SELECT c.id, c.complaint_id, c.description, c.location, c.photo, c.status, c.created_at,
+                   c.resolution_photo, c.resolution_message, c.resolved_at, c.citizen_approval, c.citizen_approved_at,
                    u.name AS user_name, cat.name AS category_name
             FROM complaints c
             JOIN users u ON c.user_id=u.id
@@ -1003,20 +1062,114 @@ def admin_dashboard():
 @app.route("/admin/update-status/<int:complaint_id>", methods=["POST"])
 @admin_required
 def update_status(complaint_id):
-    status = request.form["status"]
-    allowed = {"Submitted", "Under Review", "In Progress", "Resolved", "Closed"}
+    status = request.form.get("status")
+    resolution_message = request.form.get("resolution_message", "").strip()
+    resolution_photo_file = request.files.get("resolution_photo")
+
+    allowed = {"Submitted", "Under Review", "In Progress", "Resolved", "Reopened", "Closed"}
     if status not in allowed:
         flash("Invalid status.", "danger")
         return redirect(url_for("admin_dashboard"))
 
     db = get_db()
-    cur = db.cursor()
-    cur.execute("UPDATE complaints SET status=%s WHERE id=%s",
-                (status, complaint_id))
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM complaints WHERE id=%s", (complaint_id,))
+    complaint = cur.fetchone()
+
+    if not complaint:
+        cur.close(); db.close()
+        flash("Complaint not found.", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    saved_photo_filename = None
+    if resolution_photo_file and resolution_photo_file.filename:
+        if not allowed_file(resolution_photo_file.filename):
+            cur.close(); db.close()
+            flash("Invalid image format for resolution photo. Allowed formats: jpg, jpeg, png, webp.", "danger")
+            return redirect(url_for("admin_dashboard"))
+        saved_photo_filename = save_resolution_photo(resolution_photo_file)
+
+    existing_res_photo = complaint.get("resolution_photo") or saved_photo_filename
+
+    if status == "Resolved" and not existing_res_photo:
+        cur.close(); db.close()
+        flash("Please upload a resolution proof photo before marking this complaint as Resolved.", "danger")
+        return redirect(url_for("admin_dashboard"))
+
+    res_photo_to_save = saved_photo_filename or complaint.get("resolution_photo")
+    res_msg_to_save = resolution_message if resolution_message else (complaint.get("resolution_message") or "Problem has been resolved. Please verify the solution.")
+
+    now_ts = datetime.now()
+    if status == "Resolved":
+        cur.execute(
+            """UPDATE complaints 
+               SET status=%s, resolution_photo=%s, resolution_message=%s, resolved_at=%s, citizen_approval='Pending' 
+               WHERE id=%s""",
+            (status, res_photo_to_save, res_msg_to_save, now_ts, complaint_id)
+        )
+    else:
+        cur.execute(
+            """UPDATE complaints 
+               SET status=%s, resolution_photo=%s, resolution_message=%s 
+               WHERE id=%s""",
+            (status, res_photo_to_save, res_msg_to_save, complaint_id)
+        )
+
     db.commit()
     cur.close(); db.close()
-    flash("Complaint status updated.", "success")
+
+    try:
+        send_resolution_notification(complaint)
+    except Exception as e:
+        logger.warning(f"[EMAIL NOTIFICATION NOTICE] {e}")
+
+    flash("Complaint status updated successfully.", "success")
     return redirect(url_for("admin_dashboard"))
+
+@app.route("/citizen/verify-resolution/<int:complaint_db_id>", methods=["POST"])
+@citizen_required
+def citizen_verify_resolution(complaint_db_id):
+    action = request.form.get("action")
+    if action not in ("approve", "reject"):
+        flash("Invalid verification action.", "danger")
+        return redirect(url_for("dashboard"))
+
+    user_id = session.get("user_id")
+    db = get_db()
+    cur = db.cursor(dictionary=True)
+    cur.execute("SELECT * FROM complaints WHERE id=%s", (complaint_db_id,))
+    complaint = cur.fetchone()
+
+    if not complaint:
+        cur.close(); db.close()
+        flash("Complaint not found.", "danger")
+        return redirect(url_for("dashboard"))
+
+    # Security check: verify logged in citizen is the complaint owner!
+    if complaint["user_id"] != user_id:
+        cur.close(); db.close()
+        flash("Unauthorized access. You can only verify your own complaints.", "danger")
+        return redirect(url_for("dashboard"))
+
+    now_ts = datetime.now()
+    if action == "approve":
+        cur.execute(
+            "UPDATE complaints SET status='Closed', citizen_approval='Approved', citizen_approved_at=%s WHERE id=%s",
+            (now_ts, complaint_db_id)
+        )
+        db.commit()
+        cur.close(); db.close()
+        flash("Thank you! Your complaint has been verified as solved.", "success")
+    else:
+        cur.execute(
+            "UPDATE complaints SET status='Reopened', citizen_approval='Rejected', citizen_approved_at=%s WHERE id=%s",
+            (now_ts, complaint_db_id)
+        )
+        db.commit()
+        cur.close(); db.close()
+        flash("Your complaint has been reopened. The responsible team will review the issue again.", "warning")
+
+    return redirect(url_for("complaint_detail", complaint_db_id=complaint_db_id))
 
 @app.route("/admin/delete-complaint/<int:complaint_id>", methods=["POST"])
 @admin_required

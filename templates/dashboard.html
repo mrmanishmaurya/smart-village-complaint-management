@@ -15,6 +15,60 @@
         </a>
     </div>
 
+    <!-- IN-APP RESOLUTION NOTIFICATIONS -->
+    {% for c in complaints %}
+        {% if c.status == 'Resolved' %}
+        <div class="card border-warning border-2 shadow-sm rounded-4 mb-4 bg-light">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                    <h5 class="fw-bold text-dark m-0">🔔 Complaint Resolved</h5>
+                    <span class="badge bg-warning text-dark px-3 py-2 fs-6 rounded-pill">Verification Pending</span>
+                </div>
+                <p class="text-secondary mb-3">
+                    Your complaint <strong>{{ c.complaint_id }}</strong> ({{ c.category_name }}) has been marked as resolved by the administration.
+                    Admin has submitted a proof photo showing the completed work. Please inspect the solution below and confirm whether your problem has been solved.
+                </p>
+
+                <div class="row align-items-center g-3 mb-4 p-3 bg-white rounded border">
+                    <div class="col-md-4 text-center">
+                        {% if c.resolution_photo %}
+                        <a href="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" target="_blank">
+                            <img src="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 180px;" alt="Resolution proof image">
+                        </a>
+                        <small class="text-muted d-block mt-1">Resolution Proof Photo</small>
+                        {% else %}
+                        <div class="p-3 bg-light text-muted rounded">📷 Proof Image Attached</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-8">
+                        <h6 class="fw-bold text-success mb-1">Resolution Message:</h6>
+                        <p class="fst-italic text-dark bg-light p-3 rounded border mb-2">
+                            "{{ c.resolution_message or 'Your problem has been resolved. Please verify the solution.' }}"
+                        </p>
+                        <small class="text-muted">Resolved Date: {{ c.resolved_at or c.updated_at }}</small>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-3 flex-wrap justify-content-end">
+                    <form method="post" action="{{ url_for('citizen_verify_resolution', complaint_db_id=c.id) }}" onsubmit="return confirm('Are you sure you want to confirm that your problem has been solved?');">
+                        <input type="hidden" name="action" value="approve">
+                        <button type="submit" class="btn btn-success btn-lg fw-bold rounded-pill px-4 shadow-sm">
+                            ✅ YES, MY PROBLEM IS SOLVED
+                        </button>
+                    </form>
+
+                    <form method="post" action="{{ url_for('citizen_verify_resolution', complaint_db_id=c.id) }}" onsubmit="return confirm('Are you sure you want to report that your problem is not solved? This will reopen the complaint for admin review.');">
+                        <input type="hidden" name="action" value="reject">
+                        <button type="submit" class="btn btn-outline-danger btn-lg fw-bold rounded-pill px-4 shadow-sm">
+                            ❌ NO, MY PROBLEM IS NOT SOLVED
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    {% endfor %}
+
     <div class="card p-4 shadow-sm border-0 rounded-4">
         <h4 class="fw-bold text-success mb-3">📋 Your Complaints History</h4>
         <div class="table-responsive">
@@ -33,7 +87,16 @@
                 <tr>
                     <td><span class="fw-bold">{{ c.complaint_id }}</span></td>
                     <td>{{ c.category_name }}</td>
-                    <td><span class="badge bg-success px-3 py-2 rounded-pill">{{ c.status }}</span></td>
+                    <td>
+                        <span class="badge 
+                            {% if c.status == 'Closed' %}bg-success
+                            {% elif c.status == 'Resolved' %}bg-warning text-dark
+                            {% elif c.status == 'Reopened' %}bg-danger
+                            {% elif c.status == 'In Progress' %}bg-info text-dark
+                            {% else %}bg-primary{% endif %} px-3 py-2 rounded-pill">
+                            {{ c.status }}
+                        </span>
+                    </td>
                     <td>{{ c.created_at }}</td>
                     <td class="text-end">
                         <div class="btn-group btn-group-sm" role="group">

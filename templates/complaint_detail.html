@@ -1,31 +1,182 @@
 {% extends "base.html" %}{% block content %}
-<div class="card p-4">
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="m-0">{{ complaint.complaint_id }}</h2>
-    <div class="d-flex gap-2">
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('dashboard') }}">← Back</a>
-        <a class="btn btn-warning btn-sm" href="{{ url_for('edit_complaint', complaint_db_id=complaint.id) }}">✏️ Edit</a>
-        <form method="post" action="{{ url_for('delete_complaint', complaint_db_id=complaint.id) }}" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this complaint?');">
-            <button type="submit" class="btn btn-danger btn-sm">🗑️ Delete</button>
+<div class="card p-4 shadow-sm border-0 rounded-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4 pb-3 border-bottom">
+        <div>
+            <h2 class="fw-bold mb-1">Complaint Details: {{ complaint.complaint_id }}</h2>
+            <span class="badge 
+                {% if complaint.status == 'Closed' %}bg-success
+                {% elif complaint.status == 'Resolved' %}bg-warning text-dark
+                {% elif complaint.status == 'Reopened' %}bg-danger
+                {% elif complaint.status == 'In Progress' %}bg-info text-dark
+                {% else %}bg-primary{% endif %} fs-6 px-3 py-2 rounded-pill">
+                Status: {{ complaint.status }}
+            </span>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">← Back to Dashboard</a>
+            {% if complaint.status not in ['Resolved', 'Closed'] %}
+            <a class="btn btn-warning" href="{{ url_for('edit_complaint', complaint_db_id=complaint.id) }}">✏️ Edit</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- RESOLUTION WORKFLOW TIMELINE -->
+    <div class="card bg-light border-0 rounded-3 mb-4 p-3">
+        <h5 class="fw-bold text-success mb-3">📍 Complaint Progress Timeline</h5>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 text-center position-relative">
+            <div class="p-2 flex-grow-1 bg-white rounded border border-success">
+                <div class="fw-bold text-success">1. Submitted</div>
+                <small class="text-muted d-block">{{ complaint.created_at }}</small>
+            </div>
+            <div class="fw-bold text-muted">➔</div>
+            <div class="p-2 flex-grow-1 bg-white rounded border {% if complaint.status in ['Under Review', 'In Progress', 'Resolved', 'Reopened', 'Closed'] %}border-success{% else %}text-muted{% endif %}">
+                <div class="fw-bold {% if complaint.status in ['Under Review', 'In Progress', 'Resolved', 'Reopened', 'Closed'] %}text-success{% endif %}">2. Under Review</div>
+            </div>
+            <div class="fw-bold text-muted">➔</div>
+            <div class="p-2 flex-grow-1 bg-white rounded border {% if complaint.status in ['In Progress', 'Resolved', 'Reopened', 'Closed'] %}border-success{% else %}text-muted{% endif %}">
+                <div class="fw-bold {% if complaint.status in ['In Progress', 'Resolved', 'Reopened', 'Closed'] %}text-success{% endif %}">3. In Progress</div>
+            </div>
+            <div class="fw-bold text-muted">➔</div>
+            <div class="p-2 flex-grow-1 bg-white rounded border {% if complaint.status in ['Resolved', 'Closed'] %}border-success{% elif complaint.status == 'Reopened' %}border-danger{% else %}text-muted{% endif %}">
+                <div class="fw-bold {% if complaint.status in ['Resolved', 'Closed'] %}text-success{% elif complaint.status == 'Reopened' %}text-danger{% endif %}">
+                    4. {% if complaint.status == 'Reopened' %}Reopened{% else %}Resolved by Admin{% endif %}
+                </div>
+                {% if complaint.resolved_at %}
+                <small class="text-muted d-block">{{ complaint.resolved_at }}</small>
+                {% endif %}
+            </div>
+            <div class="fw-bold text-muted">➔</div>
+            <div class="p-2 flex-grow-1 bg-white rounded border {% if complaint.status == 'Closed' %}border-success{% else %}text-muted{% endif %}">
+                <div class="fw-bold {% if complaint.status == 'Closed' %}text-success{% endif %}">5. Closed / Verified</div>
+                {% if complaint.citizen_approved_at %}
+                <small class="text-muted d-block">{{ complaint.citizen_approved_at }}</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="p-3 bg-light rounded border h-100">
+                <h5 class="fw-bold text-primary mb-3">📝 Complaint Information</h5>
+                <p><strong>Citizen Name:</strong> {{ complaint.user_name }}</p>
+                <p><strong>Category:</strong> {{ complaint.category_name }}</p>
+                <p><strong>Location:</strong> {{ complaint.location or 'Not provided' }}</p>
+                <p><strong>Submitted Date:</strong> {{ complaint.created_at }}</p>
+                <p class="mb-1"><strong>Description:</strong></p>
+                <div class="p-3 bg-white rounded border text-secondary">
+                    {{ complaint.description }}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 text-center">
+            <div class="p-3 bg-light rounded border h-100">
+                <h5 class="fw-bold text-primary mb-3">📷 Original Citizen Complaint Photo</h5>
+                {% if complaint.photo %}
+                <a href="{{ url_for('uploaded_file', filename=complaint.photo) }}" target="_blank">
+                    <img class="img-fluid rounded border shadow-sm" style="max-height: 250px;" src="{{ url_for('uploaded_file', filename=complaint.photo) }}" alt="Original Complaint Photo">
+                </a>
+                <small class="text-muted d-block mt-2">Click image to view full size</small>
+                {% else %}
+                <div class="p-4 bg-white rounded border text-muted">
+                    📷 No photo was submitted with this complaint.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- RESOLUTION PROOF SECTION -->
+    {% if complaint.resolution_photo or complaint.status in ['Resolved', 'Closed', 'Reopened'] %}
+    <div class="card border-success border-2 shadow-sm rounded-4 mb-4 bg-light">
+        <div class="card-body p-4">
+            <h4 class="fw-bold text-success mb-3">📸 Admin Resolution Proof & Citizen Verification</h4>
+            
+            <div class="row align-items-center g-4 mb-4">
+                <div class="col-md-5 text-center">
+                    <label class="fw-bold d-block mb-2">Admin Resolution Proof Photo:</label>
+                    {% if complaint.resolution_photo %}
+                    <a href="{{ url_for('uploaded_file', filename=complaint.resolution_photo) }}" target="_blank">
+                        <img src="{{ url_for('uploaded_file', filename=complaint.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 220px;" alt="Resolution proof image">
+                    </a>
+                    <small class="text-muted d-block mt-1">Click image to view full size</small>
+                    {% else %}
+                    <div class="p-4 bg-white rounded border text-muted">
+                        ⚠️ Resolution photo pending upload.
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="col-md-7">
+                    <h6 class="fw-bold text-dark mb-1">Resolution Message:</h6>
+                    <p class="fst-italic text-dark bg-white p-3 rounded border mb-3">
+                        "{{ complaint.resolution_message or 'Problem has been resolved. Please verify the solution.' }}"
+                    </p>
+                    <p class="mb-1"><strong>Resolved Date:</strong> {{ complaint.resolved_at or 'N/A' }}</p>
+                    <p class="mb-1"><strong>Citizen Verification Status:</strong> 
+                        {% if complaint.citizen_approval == 'Approved' or complaint.status == 'Closed' %}
+                        <span class="badge bg-success">Approved by Citizen</span>
+                        {% elif complaint.citizen_approval == 'Rejected' or complaint.status == 'Reopened' %}
+                        <span class="badge bg-danger">Rejected by Citizen</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">Pending Verification</span>
+                        {% endif %}
+                    </p>
+                    {% if complaint.citizen_approved_at %}
+                    <p class="mb-0"><strong>Verification Timestamp:</strong> {{ complaint.citizen_approved_at }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- ACTION BUTTONS FOR CITIZEN OWNER -->
+            {% if complaint.status == 'Resolved' and session.get('user_id') == complaint.user_id %}
+            <div class="p-3 bg-white rounded border d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <div class="fw-bold text-dark">Has your complaint problem been completely solved?</div>
+                <div class="d-flex gap-2">
+                    <form method="post" action="{{ url_for('citizen_verify_resolution', complaint_db_id=complaint.id) }}" onsubmit="return confirm('Are you sure you want to confirm that your problem has been solved?');">
+                        <input type="hidden" name="action" value="approve">
+                        <button type="submit" class="btn btn-success fw-bold px-4 rounded-pill">
+                            ✅ YES, MY PROBLEM IS SOLVED
+                        </button>
+                    </form>
+                    <form method="post" action="{{ url_for('citizen_verify_resolution', complaint_db_id=complaint.id) }}" onsubmit="return confirm('Are you sure you want to report that your problem is not solved? This will reopen the complaint for admin review.');">
+                        <input type="hidden" name="action" value="reject">
+                        <button type="submit" class="btn btn-outline-danger fw-bold px-4 rounded-pill">
+                            ❌ NO, MY PROBLEM IS NOT SOLVED
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- CITIZEN FEEDBACK SECTION -->
+    {% if complaint.status in ['Resolved', 'Closed'] %}
+    <div class="card p-4 border-0 bg-light rounded-4">
+        <h4 class="fw-bold text-success mb-3">⭐ Citizen Feedback</h4>
+        <form method="post" action="{{ url_for('feedback', complaint_db_id=complaint.id) }}">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Rate Resolution Service Quality:</label>
+                <select class="form-select" name="rating" required>
+                    <option value="">Choose Rating...</option>
+                    <option value="5">⭐⭐⭐⭐⭐ 5 - Excellent</option>
+                    <option value="4">⭐⭐⭐⭐ 4 - Good</option>
+                    <option value="3">⭐⭐⭐ 3 - Average</option>
+                    <option value="2">⭐⭐ 2 - Poor</option>
+                    <option value="1">⭐ 1 - Very Poor</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Comments / Additional Feedback:</label>
+                <textarea class="form-control" name="comment" rows="3" placeholder="Share your experience with the resolution speed and quality..."></textarea>
+            </div>
+            <button class="btn btn-success fw-bold rounded-pill px-4">Submit Feedback</button>
         </form>
     </div>
-</div>
-<p><b>Category:</b> {{ complaint.category_name }}</p>
-<p><b>Description:</b> {{ complaint.description }}</p>
-<p><b>Location:</b> {{ complaint.location or 'Not provided' }}</p>
-<p><b>Status:</b> <span class="badge bg-primary">{{ complaint.status }}</span></p>
-<p><b>Submitted:</b> {{ complaint.created_at }}</p>
-{% if complaint.photo %}<img class="img-fluid rounded mb-3" style="max-width:400px" src="{{ url_for('uploaded_file', filename=complaint.photo) }}">{% endif %}
-{% if complaint.status in ['Resolved','Closed'] %}
-<hr><h4>Feedback</h4>
-<form method="post" action="{{ url_for('feedback', complaint_db_id=complaint.id) }}">
-<select class="form-select mb-2" name="rating" required>
-<option value="">Rating</option><option value="5">5 - Excellent</option><option value="4">4 - Good</option>
-<option value="3">3 - Average</option><option value="2">2 - Poor</option><option value="1">1 - Very Poor</option>
-</select>
-<textarea class="form-control mb-2" name="comment" placeholder="Your feedback"></textarea>
-<button class="btn btn-success">Submit Feedback</button>
-</form>
-{% endif %}
+    {% endif %}
+
 </div>
 {% endblock %}

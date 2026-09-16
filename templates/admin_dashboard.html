@@ -52,8 +52,9 @@
                     <th>Category</th>
                     <th>Photo</th>
                     <th>Status</th>
+                    <th>Citizen Verification</th>
                     <th>Action / Details</th>
-                    <th>Update Status</th>
+                    <th>Update Status & Proof</th>
                 </tr>
             </thead>
 
@@ -80,53 +81,70 @@
                     </td>
 
                     <td>
-                        <span class="badge bg-primary">
+                        <span class="badge 
+                            {% if c.status == 'Resolved' %}bg-warning text-dark
+                            {% elif c.status == 'Closed' %}bg-success
+                            {% elif c.status == 'Reopened' %}bg-danger
+                            {% elif c.status == 'In Progress' %}bg-info text-dark
+                            {% else %}bg-primary{% endif %}">
                             {{ c.status }}
                         </span>
                     </td>
 
                     <td>
-                        <div class="d-flex gap-1 align-items-center">
-                            <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
-                                👁️ View Details
-                            </button>
-                            <form method="post" action="{{ url_for('admin_delete_complaint', complaint_id=c.id) }}" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this complaint?');">
-                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                            </form>
-                        </div>
+                        {% if c.citizen_approval == 'Approved' or c.status == 'Closed' %}
+                        <span class="badge bg-success">Approved by Citizen</span>
+                        {% elif c.citizen_approval == 'Rejected' or c.status == 'Reopened' %}
+                        <span class="badge bg-danger">Rejected by Citizen</span>
+                        {% elif c.status == 'Resolved' %}
+                        <span class="badge bg-warning text-dark">Pending Verification</span>
+                        {% else %}
+                        <span class="badge bg-light text-secondary border">N/A</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#complaintModal{{ c.id }}">
+                            👁️ View Details
+                        </button>
                     </td>
 
 
-                    <td>
+                    <td style="min-width: 200px;">
                         <form
                             method="post"
                             action="{{ url_for('update_status', complaint_id=c.id) }}"
-                            class="d-flex gap-2"
+                            enctype="multipart/form-data"
+                            class="d-flex flex-column gap-1"
                         >
-                            <select
-                                name="status"
-                                class="form-select form-select-sm"
-                                style="min-width: 130px;"
-                            >
-                                {% for s in [
-                                    'Submitted',
-                                    'Under Review',
-                                    'In Progress',
-                                    'Resolved',
-                                    'Closed'
-                                ] %}
-                                <option
-                                    value="{{ s }}"
-                                    {% if c.status == s %}selected{% endif %}
+                            <div class="d-flex gap-1">
+                                <select
+                                    name="status"
+                                    class="form-select form-select-sm"
                                 >
-                                    {{ s }}
-                                </option>
-                                {% endfor %}
-                            </select>
+                                    {% for s in [
+                                        'Submitted',
+                                        'Under Review',
+                                        'In Progress',
+                                        'Resolved',
+                                        'Reopened',
+                                        'Closed'
+                                    ] %}
+                                    <option
+                                        value="{{ s }}"
+                                        {% if c.status == s %}selected{% endif %}
+                                    >
+                                        {{ s }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
 
-                            <button class="btn btn-sm btn-success">
-                                Update
-                            </button>
+                                <button class="btn btn-sm btn-success">
+                                    Update
+                                </button>
+                            </div>
+                            <input type="file" name="resolution_photo" class="form-control form-control-sm mt-1" accept="image/*" title="Upload resolution proof photo for Resolved status">
+                            <input type="text" name="resolution_message" class="form-control form-control-sm mt-1" placeholder="Resolution proof message..." value="{{ c.resolution_message or '' }}">
                         </form>
                     </td>
 
@@ -146,7 +164,11 @@
                             <p><strong>Citizen:</strong> {{ c.user_name }}</p>
                             <p><strong>Category:</strong> {{ c.category_name }}</p>
                             <p><strong>Location:</strong> {{ c.location or 'Not provided' }}</p>
-                            <p><strong>Status:</strong> <span class="badge bg-primary">{{ c.status }}</span></p>
+                            <p><strong>Status:</strong> 
+                                <span class="badge {% if c.status == 'Resolved' %}bg-warning text-dark{% elif c.status == 'Closed' %}bg-success{% elif c.status == 'Reopened' %}bg-danger{% else %}bg-primary{% endif %}">
+                                    {{ c.status }}
+                                </span>
+                            </p>
                             <p><strong>Submitted Date:</strong> {{ c.created_at }}</p>
                             <p><strong>Description:</strong></p>
                             <div class="p-3 bg-light rounded border mb-3">
@@ -154,12 +176,12 @@
                             </div>
                           </div>
                           <div class="col-md-6 text-center">
-                            <label class="fw-bold d-block mb-2">Complaint Image:</label>
+                            <label class="fw-bold d-block mb-2">Original Complaint Image:</label>
                             {% if c.photo %}
                               <a href="{{ url_for('uploaded_file', filename=c.photo) }}" target="_blank">
-                                <img src="{{ url_for('uploaded_file', filename=c.photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 350px;" alt="Complaint photo">
+                                <img src="{{ url_for('uploaded_file', filename=c.photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 250px;" alt="Complaint photo">
                               </a>
-                              <small class="text-muted d-block mt-1">Click image to open full size in new tab</small>
+                              <small class="text-muted d-block mt-1">Click image to open full size</small>
                             {% else %}
                               <div class="p-4 bg-light rounded border text-muted">
                                 📷 No image attached with this complaint.
@@ -167,6 +189,47 @@
                             {% endif %}
                           </div>
                         </div>
+
+                        {% if c.resolution_photo or c.status in ['Resolved', 'Closed', 'Reopened'] %}
+                        <hr>
+                        <div class="row bg-light p-3 rounded border mx-0 mt-2">
+                            <h6 class="fw-bold text-success mb-2">📸 Resolution & Citizen Verification Details</h6>
+                            <div class="col-md-6 text-center">
+                                <label class="fw-bold d-block mb-2">Resolution Proof Photo:</label>
+                                {% if c.resolution_photo %}
+                                <a href="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" target="_blank">
+                                    <img src="{{ url_for('uploaded_file', filename=c.resolution_photo) }}" class="img-fluid rounded border shadow-sm" style="max-height: 220px;" alt="Resolution proof">
+                                </a>
+                                {% else %}
+                                <div class="p-3 bg-white rounded border text-muted small">
+                                    ⚠️ No resolution photo uploaded yet.
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <p class="mb-1"><strong>Resolution Message:</strong></p>
+                                <div class="p-2 bg-white rounded border small mb-2">
+                                    {{ c.resolution_message or 'Problem has been resolved. Please verify the solution.' }}
+                                </div>
+                                <p class="mb-1"><strong>Resolved Date:</strong> <span class="small text-muted">{{ c.resolved_at or 'N/A' }}</span></p>
+                                <p class="mb-1"><strong>Citizen Verification:</strong> 
+                                    {% if c.citizen_approval == 'Approved' or c.status == 'Closed' %}
+                                    <span class="badge bg-success">Approved by Citizen</span>
+                                    {% elif c.citizen_approval == 'Rejected' or c.status == 'Reopened' %}
+                                    <span class="badge bg-danger">Rejected by Citizen</span>
+                                    {% elif c.status == 'Resolved' %}
+                                    <span class="badge bg-warning text-dark">Pending Verification</span>
+                                    {% else %}
+                                    <span class="badge bg-light text-secondary border">N/A</span>
+                                    {% endif %}
+                                </p>
+                                {% if c.citizen_approved_at %}
+                                <p class="mb-0"><strong>Verified Date:</strong> <span class="small text-muted">{{ c.citizen_approved_at }}</span></p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+
                       </div>
                       <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>

@@ -18,7 +18,7 @@ DB_USER = os.environ.get("DB_USER", "root")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "Manish9934")
 DB_NAME = os.environ.get("DB_NAME", "smart_village")
 DB_PORT = int(os.environ.get("DB_PORT", 3306))
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "manishmaurya9934@gmail.com")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@smartvillage.com")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Manish@9934")
 
 def init_mysql():
@@ -97,14 +97,37 @@ def init_mysql():
                 description TEXT NOT NULL,
                 location VARCHAR(255),
                 photo VARCHAR(255),
-                status ENUM('Submitted','Under Review','In Progress','Resolved','Closed') DEFAULT 'Submitted',
+                status VARCHAR(50) DEFAULT 'Submitted',
                 assigned_to INT NULL,
+                resolution_photo VARCHAR(255) NULL,
+                resolution_message TEXT NULL,
+                resolved_at TIMESTAMP NULL,
+                citizen_approval VARCHAR(50) DEFAULT 'Pending',
+                citizen_approved_at TIMESTAMP NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (category_id) REFERENCES categories(id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
+
+        mysql_cols = [
+            ("resolution_photo", "VARCHAR(255) NULL"),
+            ("resolution_message", "TEXT NULL"),
+            ("resolved_at", "TIMESTAMP NULL"),
+            ("citizen_approval", "VARCHAR(50) DEFAULT 'Pending'"),
+            ("citizen_approved_at", "TIMESTAMP NULL")
+        ]
+        for col_name, col_type in mysql_cols:
+            try:
+                cur.execute(f"ALTER TABLE complaints ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+
+        try:
+            cur.execute("ALTER TABLE complaints MODIFY status VARCHAR(50) DEFAULT 'Submitted'")
+        except Exception:
+            pass
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS feedback (
